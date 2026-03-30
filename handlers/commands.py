@@ -21,6 +21,7 @@ async def cmd_start(message: Message):
         "Просто напиши задачу, и я добавлю её в Microsoft Todo.\n\n"
         "Команды:\n"
         "/todotoday — задачи на сегодня\n"
+        "/tomorrow — задачи на завтра\n"
         "/todoall — все открытые задачи\n"
         "/overdue — просроченные\n"
         "/week — события на неделю\n"
@@ -49,6 +50,24 @@ async def cmd_todotoday(message: Message):
         return
 
     await message.answer(f"📋 Задачи на сегодня ({len(tasks)}):")
+    for task in tasks:
+        key = await register_task_id(task["id"])
+        await message.answer(task["title"], reply_markup=task_actions_kb(key))
+
+
+@router.message(Command("tomorrow"), user_filter)
+async def cmd_tomorrow(message: Message):
+    try:
+        tasks = await ms_todo.get_tasks_tomorrow()
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+
+    if not tasks:
+        await message.answer("📭 Задач на завтра нет.")
+        return
+
+    await message.answer(f"📋 Задачи на завтра ({len(tasks)}):")
     for task in tasks:
         key = await register_task_id(task["id"])
         await message.answer(task["title"], reply_markup=task_actions_kb(key))

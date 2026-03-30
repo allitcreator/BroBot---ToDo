@@ -26,7 +26,9 @@ def task_actions_kb(key: str) -> InlineKeyboardMarkup:
 
 def overdue_task_kb(key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Выполнено", callback_data=f"task:done:{key}"),
+        InlineKeyboardButton(text="✅", callback_data=f"task:done:{key}"),
+        InlineKeyboardButton(text="✏️ Название", callback_data=f"task:edit_title:{key}"),
+        InlineKeyboardButton(text="📅 Дата", callback_data=f"task:edit_date:{key}"),
     ]])
 
 

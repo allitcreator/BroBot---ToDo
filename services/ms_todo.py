@@ -171,6 +171,12 @@ async def get_tasks_today() -> list[dict]:
     return [t for t in tasks if _task_local_date(t) == today]
 
 
+async def get_tasks_tomorrow() -> list[dict]:
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    tasks = await get_tasks("status ne 'completed'")
+    return [t for t in tasks if _task_local_date(t) == tomorrow]
+
+
 async def get_all_tasks() -> list[dict]:
     return await get_tasks("status ne 'completed'")
 

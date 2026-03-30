@@ -17,6 +17,7 @@ async def on_startup(bot: Bot):
     await storage.init_db()
     await bot.set_my_commands([
         BotCommand(command="todotoday", description="Задачи на сегодня"),
+        BotCommand(command="tomorrow", description="Задачи на завтра"),
         BotCommand(command="todoall", description="Все открытые задачи"),
         BotCommand(command="overdue", description="Просроченные задачи"),
         BotCommand(command="week", description="События на неделю"),
@@ -76,6 +77,7 @@ async def run_polling():
 
     await bot.set_my_commands([
         BotCommand(command="todotoday", description="Задачи на сегодня"),
+        BotCommand(command="tomorrow", description="Задачи на завтра"),
         BotCommand(command="todoall", description="Все открытые задачи"),
         BotCommand(command="overdue", description="Просроченные задачи"),
         BotCommand(command="week", description="События на неделю"),
