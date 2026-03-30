@@ -26,3 +26,4 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
 WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "8080"))
 USE_WEBHOOK = os.getenv("USE_WEBHOOK", "false").lower() == "true"
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")

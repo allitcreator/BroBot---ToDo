@@ -24,7 +24,7 @@ async def on_startup(bot: Bot):
         BotCommand(command="settings", description="Настройки"),
     ])
     webhook_url = f"{config.WEBHOOK_HOST}{config.WEBHOOK_PATH}"
-    await bot.set_webhook(webhook_url)
+    await bot.set_webhook(webhook_url, secret_token=config.WEBHOOK_SECRET or None)
     logging.info(f"Webhook set: {webhook_url}")
 
 
@@ -51,7 +51,9 @@ def run_webhook():
     dp.shutdown.register(on_shutdown)
 
     app = web.Application()
-    handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+    handler = SimpleRequestHandler(
+        dispatcher=dp, bot=bot, secret_token=config.WEBHOOK_SECRET or None,
+    )
     handler.register(app, path="/")
     setup_application(app, dp, bot=bot)
 
