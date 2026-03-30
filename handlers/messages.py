@@ -1,0 +1,351 @@
+from aiogram import Router, F, Bot
+from aiogram.types import Message
+import config
+from db import storage
+from services import llm, ms_todo, google_calendar
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb
+from handlers.utils import format_task_preview
+
+router = Router()
+
+
+def user_filter(message: Message) -> bool:
+    return message.from_user.id == config.TELEGRAM_USER_ID
+
+
+async def _extract_text(message: Message) -> str | None:
+    """Извлекает текст из сообщения или транскрибирует голосовое."""
+    if message.voice:
+        await message.bot.send_chat_action(message.chat.id, "typing")
+        file = await message.bot.get_file(message.voice.file_id)
+        bio = await message.bot.download_file(file.file_path)
+        text = await llm.transcribe_voice(bio.read())
+        await message.reply(f"🎤 {text}")
+        return text
+    return message.text or message.caption or ""
+
+
+@router.message(F.from_user.func(lambda u: u.id == config.TELEGRAM_USER_ID))
+async def handle_message(message: Message):
+    user_id = message.from_user.id
+
+    # Проверяем текущее состояние
+    state, state_data = await storage.get_state(user_id)
+
+    if state == "editing_pending_title":
+        await _handle_edit_pending_title(message, state_data)
+        return
+
+    if state == "editing_task_title":
+        await _handle_edit_task_title(message, state_data)
+        return
+
+    if state == "editing_task_date":
+        await _handle_edit_task_date(message, state_data)
+        return
+
+    if state == "cal_waiting_time_duration":
+        await _handle_cal_time_and_duration(message, state_data)
+        return
+
+    if state == "cal_waiting_duration":
+        await _handle_cal_duration(message, state_data)
+        return
+
+    # Иначе — парсим как новую задачу
+    await _handle_new_task(message)
+
+
+def _get_forward_link(message: Message) -> str | None:
+    """Пытается получить ссылку на оригинальное сообщение."""
+    origin = message.forward_origin
+    if not origin:
+        return None
+    if origin.type == "channel" and origin.chat:
+        chat = origin.chat
+        if chat.username:
+            return f"https://t.me/{chat.username}/{origin.message_id}"
+        else:
+            chat_id = str(chat.id).replace("-100", "")
+            return f"https://t.me/c/{chat_id}/{origin.message_id}"
+    return None
+
+
+def _build_forward_description(message: Message) -> str:
+    """Собирает description из пересланного сообщения: текст + ссылка."""
+    parts = []
+    fwd_text = message.text or message.caption or ""
+    if fwd_text:
+        parts.append(fwd_text)
+    fwd_link = _get_forward_link(message)
+    if fwd_link:
+        parts.append(fwd_link)
+    return "\n\n".join(parts)
+
+
+async def _handle_new_task(message: Message):
+    user_id = message.from_user.id
+    description = None
+
+    # Пересланное сообщение — сохраняем отдельно
+    if message.forward_origin:
+        fwd_desc = _build_forward_description(message)
+        await storage.save_forward(user_id, fwd_desc)
+
+        # Если уже есть pending задача (комментарий обработался быстрее) — прикрепляем
+        pending = await storage.get_pending_task(user_id)
+        if pending:
+            pending["description"] = fwd_desc
+            await storage.save_pending_task(user_id, pending)
+            preview = format_task_preview(pending)
+            await message.answer(
+                f"📋 Создать задачу?\n\n{preview}",
+                reply_markup=confirm_task_kb(),
+            )
+            return
+
+        # Ждём 2 секунды — если комментарий не придёт, спросим
+        import asyncio
+        await asyncio.sleep(2)
+        # Проверяем: если форвард всё ещё в БД (не подхвачен комментарием) — спрашиваем
+        still_saved = await storage.pop_forward(user_id)
+        if still_saved:
+            await storage.save_forward(user_id, still_saved)
+            await message.answer("💬 Напиши что сделать с этим сообщением (или /skip чтобы пропустить):")
+        return
+
+    try:
+        text = await _extract_text(message)
+    except Exception as e:
+        await message.answer(f"❌ Не удалось распознать голосовое: {e}")
+        return
+
+    if not text:
+        return
+
+    await message.bot.send_chat_action(message.chat.id, "typing")
+
+    try:
+        task = await llm.parse_task(text)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при разборе задачи: {e}")
+        return
+
+    # Подхватываем сохранённый форвард (мог прийти до или во время LLM вызова)
+    saved_fwd = await storage.pop_forward(user_id)
+    if saved_fwd:
+        task["description"] = saved_fwd
+
+    confirm_mode = await storage.get_confirm_mode(user_id)
+    need_confirm = (
+        confirm_mode == "all"
+        or (confirm_mode == "uncertain" and task.get("confidence") == "low")
+    )
+
+    if need_confirm:
+        await storage.save_pending_task(user_id, task)
+        preview = format_task_preview(task)
+        await message.answer(
+            f"📋 Создать задачу?\n\n{preview}",
+            reply_markup=confirm_task_kb(),
+        )
+    else:
+        await _create_task_and_ask_calendar(message, task)
+
+
+async def _create_task_and_ask_calendar(message: Message, task: dict):
+    user_id = message.from_user.id
+    try:
+        created = await ms_todo.create_task(
+            title=task["title"],
+            due_date=task["due_date"],
+            subtasks=task.get("subtasks"),
+            description=task.get("description"),
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при создании задачи: {e}")
+        return
+
+    await message.answer(f"✅ Задача создана: {task['title']}")
+
+    # Спрашиваем про календарь только если это событие
+    if not task.get("is_event"):
+        return
+
+    # Сохраняем данные для возможного добавления в календарь
+    cal_data = {
+        "task_id": created["id"],
+        "title": task["title"],
+        "due_date": task["due_date"],
+        "due_time": task.get("due_time"),
+        "duration_minutes": task.get("duration_minutes"),
+    }
+
+    has_time = bool(task.get("due_time"))
+    has_duration = bool(task.get("duration_minutes"))
+
+    if has_time and has_duration:
+        await storage.set_state(user_id, "cal_ask", cal_data)
+        await message.answer(
+            "📅 Добавить событие в Google Calendar?",
+            reply_markup=calendar_ask_kb(),
+        )
+    elif has_time:
+        await storage.set_state(user_id, "cal_waiting_duration", cal_data)
+        await message.answer(
+            "📅 Добавить в Google Calendar?\n"
+            "Если да — напиши длительность (например: 1 час, 30 минут).\n"
+            "Или нажми /skip чтобы пропустить.",
+            reply_markup=calendar_ask_kb(),
+        )
+    else:
+        await storage.set_state(user_id, "cal_waiting_time_duration", cal_data)
+        await message.answer(
+            "📅 Добавить в Google Calendar?\n"
+            "Если да — напиши время и длительность (например: в 14:00, 1 час).\n"
+            "Или нажми /skip чтобы пропустить.",
+            reply_markup=calendar_ask_kb(),
+        )
+
+
+async def _handle_forward_comment(message: Message, state_data: dict):
+    user_id = message.from_user.id
+    await storage.clear_state(user_id)
+
+    text = message.text or ""
+    if not text:
+        await message.answer("❌ Нужен текст. Попробуй ещё раз или /skip")
+        return
+
+    await message.bot.send_chat_action(message.chat.id, "typing")
+
+    try:
+        task = await llm.parse_task(text)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при разборе задачи: {e}")
+        return
+
+    task["description"] = state_data.get("description", "")
+
+    confirm_mode = await storage.get_confirm_mode(user_id)
+    need_confirm = (
+        confirm_mode == "all"
+        or (confirm_mode == "uncertain" and task.get("confidence") == "low")
+    )
+
+    if need_confirm:
+        await storage.save_pending_task(user_id, task)
+        preview = format_task_preview(task)
+        await message.answer(
+            f"📋 Создать задачу?\n\n{preview}",
+            reply_markup=confirm_task_kb(),
+        )
+    else:
+        await _create_task_and_ask_calendar(message, task)
+
+
+async def _handle_edit_pending_title(message: Message, state_data: dict):
+    user_id = message.from_user.id
+    task = await storage.get_pending_task(user_id)
+    if not task:
+        await storage.clear_state(user_id)
+        return
+
+    text = await _extract_text(message)
+    if not text:
+        return
+    task["title"] = text
+    await storage.save_pending_task(user_id, task)
+    await storage.clear_state(user_id)
+
+    preview = format_task_preview(task)
+    await message.answer(
+        f"📋 Создать задачу?\n\n{preview}",
+        reply_markup=confirm_task_kb(),
+    )
+
+
+async def _handle_edit_task_title(message: Message, state_data: dict):
+    user_id = message.from_user.id
+    task_id = state_data.get("task_id")
+    text = await _extract_text(message)
+    if not text:
+        return
+    try:
+        await ms_todo.update_task(task_id, title=text)
+        await message.answer(f"✅ Название обновлено: {text}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+    await storage.clear_state(user_id)
+
+
+async def _handle_edit_task_date(message: Message, state_data: dict):
+    user_id = message.from_user.id
+    task_id = state_data.get("task_id")
+    text = await _extract_text(message)
+    if not text:
+        return
+    try:
+        parsed = await llm.parse_task(text)
+        new_date = parsed.get("due_date")
+        if not new_date:
+            await message.answer("❌ Не удалось распознать дату")
+            return
+        await ms_todo.update_task(task_id, due_date=new_date)
+        from datetime import date
+        d = date.fromisoformat(new_date)
+        await message.answer(f"✅ Дата обновлена: {d.strftime('%d.%m.%Y')}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+    await storage.clear_state(user_id)
+
+
+async def _handle_cal_time_and_duration(message: Message, state_data: dict):
+    user_id = message.from_user.id
+    text = await _extract_text(message)
+    if not text:
+        return
+    try:
+        details = await llm.parse_calendar_details(text)
+        due_time = details.get("due_time")
+        duration_minutes = details.get("duration_minutes")
+
+        if not due_time or not duration_minutes:
+            await message.answer("❌ Не удалось распознать время или длительность. Попробуй ещё раз или /skip")
+            return
+
+        await google_calendar.create_event(
+            title=state_data["title"],
+            due_date=state_data["due_date"],
+            due_time=due_time,
+            duration_minutes=duration_minutes,
+        )
+        await message.answer("✅ Событие добавлено в Google Calendar")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при добавлении в календарь: {e}")
+    await storage.clear_state(user_id)
+
+
+async def _handle_cal_duration(message: Message, state_data: dict):
+    user_id = message.from_user.id
+    text = await _extract_text(message)
+    if not text:
+        return
+    try:
+        details = await llm.parse_calendar_details(text)
+        duration_minutes = details.get("duration_minutes")
+
+        if not duration_minutes:
+            await message.answer("❌ Не удалось распознать длительность. Попробуй ещё раз или /skip")
+            return
+
+        await google_calendar.create_event(
+            title=state_data["title"],
+            due_date=state_data["due_date"],
+            due_time=state_data["due_time"],
+            duration_minutes=duration_minutes,
+        )
+        await message.answer("✅ Событие добавлено в Google Calendar")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при добавлении в календарь: {e}")
+    await storage.clear_state(user_id)

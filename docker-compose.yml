@@ -1,0 +1,9 @@
+services:
+  todobot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./data:/app/data
