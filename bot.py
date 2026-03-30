@@ -52,7 +52,7 @@ def run_webhook():
 
     app = web.Application()
     handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
-    handler.register(app, path=config.WEBHOOK_PATH)
+    handler.register(app, path="/")
     setup_application(app, dp, bot=bot)
 
     logging.info(f"Starting webhook on {config.WEBAPP_HOST}:{config.WEBAPP_PORT}")
