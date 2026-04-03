@@ -4,7 +4,8 @@ import config
 from db import storage
 from db.storage import resolve_task_id, register_task_id, remove_task_header
 from services import ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb, settings_kb, confirm_done_kb, confirm_delete_kb, task_actions_kb
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb, settings_kb, confirm_done_kb, confirm_delete_kb, task_actions_kb, reminder_where_kb
+from handlers.utils import ask_reminder_if_needed
 from handlers.utils import format_task_preview
 
 router = Router()
@@ -43,6 +44,10 @@ async def cb_confirm_create(callback: CallbackQuery):
 
     # Спрашиваем про календарь только если это событие
     if not task.get("is_event"):
+        await ask_reminder_if_needed(
+            callback.bot, callback.message.chat.id, user_id,
+            created["id"], task["title"], task["due_date"], task.get("due_time"),
+        )
         return
 
     cal_data = {
@@ -121,6 +126,10 @@ async def cb_cal_yes(callback: CallbackQuery):
         except Exception as e:
             await callback.message.answer(f"❌ Ошибка: {e}")
         await storage.clear_state(user_id)
+        await ask_reminder_if_needed(
+            callback.bot, callback.message.chat.id, user_id,
+            state_data["task_id"], state_data["title"], state_data["due_date"], state_data.get("due_time"),
+        )
 
     elif state == "cal_waiting_duration":
         # Уже есть время, ждём длительность
@@ -134,9 +143,16 @@ async def cb_cal_yes(callback: CallbackQuery):
 @router.callback_query(F.data == "cal:no", user_filter)
 async def cb_cal_no(callback: CallbackQuery):
     user_id = callback.from_user.id
+    _, state_data = await storage.get_state(user_id)
     await storage.clear_state(user_id)
     await callback.message.edit_reply_markup()
     await callback.answer("Пропущено")
+    if state_data:
+        await ask_reminder_if_needed(
+            callback.bot, callback.message.chat.id, user_id,
+            state_data.get("task_id", ""), state_data.get("title", ""),
+            state_data.get("due_date", ""), state_data.get("due_time"),
+        )
 
 
 # --- Действия с задачами ---
@@ -232,6 +248,96 @@ async def cb_edit_date(callback: CallbackQuery):
         "current_text": callback.message.text or "",
     })
     await callback.answer()
+
+
+# --- Напоминания ---
+
+@router.callback_query(F.data == "reminder:yes", user_filter)
+async def cb_reminder_yes(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    _, state_data = await storage.get_state(user_id)
+    if not state_data:
+        await callback.answer()
+        return
+
+    offset_msg = await callback.bot.send_message(
+        state_data["chat_id"],
+        "⏰ За сколько напомнить? (например: за 15 минут, за час, точно в 15:00)",
+    )
+    await storage.set_state(user_id, "reminder_ask_offset", {
+        "task_id": state_data["task_id"],
+        "task_title": state_data["task_title"],
+        "due_date": state_data["due_date"],
+        "due_time": state_data["due_time"],
+        "chat_id": state_data["chat_id"],
+        "offset_q_msg_id": offset_msg.message_id,
+    })
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data == "reminder:no", user_filter)
+async def cb_reminder_no(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    await storage.clear_state(user_id)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data == "reminder:tg", user_filter)
+async def cb_reminder_tg(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    _, state_data = await storage.get_state(user_id)
+    if not state_data:
+        await callback.answer()
+        return
+
+    try:
+        await storage.save_reminder(
+            state_data["chat_id"],
+            state_data["fire_at_utc"],
+            f"⏰ Напоминание: {state_data['task_title']}",
+        )
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {e}")
+        await callback.answer()
+        return
+
+    await storage.clear_state(user_id)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer("✅ Напоминание создано в Telegram")
+
+
+@router.callback_query(F.data == "reminder:todo", user_filter)
+async def cb_reminder_todo(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    _, state_data = await storage.get_state(user_id)
+    if not state_data:
+        await callback.answer()
+        return
+
+    try:
+        await ms_todo.set_reminder(state_data["task_id"], state_data["fire_at_utc"])
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {e}")
+        await callback.answer()
+        return
+
+    await storage.clear_state(user_id)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer("✅ Напоминание создано в MS Todo")
 
 
 # --- Настройки ---

@@ -1,6 +1,27 @@
 from datetime import date
 
 
+async def ask_reminder_if_needed(bot, chat_id: int, user_id: int, task_id: str, task_title: str, due_date: str, due_time: str | None):
+    """Если задача имеет время — спрашивает про напоминание."""
+    if not due_time:
+        return
+    from handlers.keyboards import reminder_ask_kb
+    from db import storage
+    remind_msg = await bot.send_message(
+        chat_id,
+        f"⏰ Напомнить в {due_time}?",
+        reply_markup=reminder_ask_kb(),
+    )
+    await storage.set_state(user_id, "reminder_pending", {
+        "task_id": task_id,
+        "task_title": task_title,
+        "due_date": due_date,
+        "due_time": due_time,
+        "remind_q_msg_id": remind_msg.message_id,
+        "chat_id": chat_id,
+    })
+
+
 def format_task_preview(task: dict) -> str:
     lines = [f"📌 {task['title']}"]
 

@@ -13,8 +13,24 @@ from handlers import messages, commands, callbacks
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
+async def _reminder_loop(bot: Bot):
+    while True:
+        await asyncio.sleep(30)
+        try:
+            due = await storage.get_due_reminders()
+            for reminder in due:
+                try:
+                    await bot.send_message(reminder["chat_id"], reminder["text"])
+                    await storage.delete_reminder(reminder["id"])
+                except Exception as e:
+                    logging.error(f"Reminder send error (id={reminder['id']}): {e}")
+        except Exception as e:
+            logging.error(f"Reminder loop error: {e}")
+
+
 async def on_startup(bot: Bot):
     await storage.init_db()
+    asyncio.create_task(_reminder_loop(bot))
     await bot.set_my_commands([
         BotCommand(command="todotoday", description="Задачи на сегодня"),
         BotCommand(command="tomorrow", description="Задачи на завтра"),
@@ -86,6 +102,7 @@ async def run_polling():
     ])
 
     logging.info("Bot started (polling)")
+    asyncio.create_task(_reminder_loop(bot))
     try:
         await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
     finally:

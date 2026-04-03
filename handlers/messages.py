@@ -3,8 +3,8 @@ from aiogram.types import Message
 import config
 from db import storage
 from services import llm, ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb
-from handlers.utils import format_task_preview
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb
+from handlers.utils import format_task_preview, ask_reminder_if_needed
 
 router = Router()
 
@@ -42,6 +42,10 @@ async def handle_message(message: Message):
 
     if state == "editing_task_date":
         await _handle_edit_task_date(message, state_data)
+        return
+
+    if state == "reminder_ask_offset":
+        await _handle_reminder_offset(message, state_data)
         return
 
     if state == "cal_waiting_time_duration":
@@ -170,6 +174,10 @@ async def _create_task_and_ask_calendar(message: Message, task: dict):
 
     # Спрашиваем про календарь только если это событие
     if not task.get("is_event"):
+        await ask_reminder_if_needed(
+            message.bot, message.chat.id, user_id,
+            created["id"], task["title"], task["due_date"], task.get("due_time"),
+        )
         return
 
     # Сохраняем данные для возможного добавления в календарь
@@ -398,9 +406,60 @@ async def _handle_cal_time_and_duration(message: Message, state_data: dict):
             duration_minutes=duration_minutes,
         )
         await message.answer("✅ Событие добавлено в Google Calendar")
+        await storage.clear_state(user_id)
+        await ask_reminder_if_needed(
+            message.bot, message.chat.id, user_id,
+            state_data.get("task_id", ""), state_data["title"], state_data["due_date"], state_data.get("due_time"),
+        )
     except Exception as e:
         await message.answer(f"❌ Ошибка при добавлении в календарь: {e}")
-    await storage.clear_state(user_id)
+        await storage.clear_state(user_id)
+
+
+async def _handle_reminder_offset(message: Message, state_data: dict):
+    user_id = message.from_user.id
+    chat_id = state_data.get("chat_id")
+    offset_q_msg_id = state_data.get("offset_q_msg_id")
+
+    text = await _extract_text(message)
+    if not text:
+        return
+
+    try:
+        fire_at_utc = await llm.parse_reminder_offset(
+            text, state_data["due_date"], state_data["due_time"]
+        )
+        if not fire_at_utc:
+            await message.answer("❌ Не удалось распознать время. Попробуй ещё раз (например: за 15 минут, за час, точно в 15:00):")
+            return
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    # Удаляем сервисные сообщения
+    if offset_q_msg_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, offset_q_msg_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    where_msg = await message.bot.send_message(
+        chat_id,
+        "Где создать напоминание?",
+        reply_markup=reminder_where_kb(),
+    )
+    await storage.set_state(user_id, "reminder_choosing_where", {
+        "task_id": state_data["task_id"],
+        "task_title": state_data["task_title"],
+        "fire_at_utc": fire_at_utc,
+        "chat_id": chat_id,
+        "where_q_msg_id": where_msg.message_id,
+    })
 
 
 async def _handle_cal_duration(message: Message, state_data: dict):
@@ -423,6 +482,11 @@ async def _handle_cal_duration(message: Message, state_data: dict):
             duration_minutes=duration_minutes,
         )
         await message.answer("✅ Событие добавлено в Google Calendar")
+        await storage.clear_state(user_id)
+        await ask_reminder_if_needed(
+            message.bot, message.chat.id, user_id,
+            state_data.get("task_id", ""), state_data["title"], state_data["due_date"], state_data.get("due_time"),
+        )
     except Exception as e:
         await message.answer(f"❌ Ошибка при добавлении в календарь: {e}")
-    await storage.clear_state(user_id)
+        await storage.clear_state(user_id)

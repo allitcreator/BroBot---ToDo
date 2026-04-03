@@ -1,6 +1,7 @@
 import json
 import base64
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from openai import AsyncOpenAI, APIStatusError
 import config
 
@@ -115,3 +116,39 @@ async def parse_calendar_details(text: str, today: str | None = None) -> dict:
         raise Exception(f"Ошибка LLM: {e.status_code}") from e
 
     return json.loads(response.choices[0].message.content)
+
+
+async def parse_reminder_offset(text: str, due_date: str, due_time: str) -> str | None:
+    """Парсит текст пользователя о времени напоминания.
+    Возвращает ISO datetime string в UTC (без timezone суффикса) или None."""
+    prompt = (
+        f"Задача запланирована на {due_date} в {due_time} (московское время, UTC+3). "
+        f"Пользователь хочет напоминание: \"{text}\"\n"
+        f"Верни JSON с точным временем напоминания в московском времени: "
+        f"{{\"fire_at\": \"YYYY-MM-DDTHH:MM:SS\"}}. "
+        f"Примеры: \"за 15 минут\" = за 15 мин до {due_time}, \"за час\" = за 60 мин до {due_time}, "
+        f"\"точно в 15:00\" = {due_date}T15:00:00. Только JSON."
+    )
+    try:
+        response = await client.chat.completions.create(
+            model="google/gemini-3-flash-preview",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_tokens=64,
+        )
+    except APIStatusError as e:
+        if e.status_code == 402:
+            raise Exception("Закончились кредиты OpenRouter.") from e
+        raise Exception(f"Ошибка LLM: {e.status_code}") from e
+
+    data = json.loads(response.choices[0].message.content)
+    fire_at_str = data.get("fire_at")
+    if not fire_at_str:
+        return None
+
+    moscow_tz = ZoneInfo("Europe/Moscow")
+    utc_tz = ZoneInfo("UTC")
+    dt_moscow = datetime.fromisoformat(fire_at_str).replace(tzinfo=moscow_tz)
+    dt_utc = dt_moscow.astimezone(utc_tz)
+    return dt_utc.strftime("%Y-%m-%dT%H:%M:%S")

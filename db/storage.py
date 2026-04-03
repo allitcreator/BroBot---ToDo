@@ -49,6 +49,14 @@ async def init_db():
             header_message_id INTEGER NOT NULL
         )
     """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            fire_at TEXT NOT NULL,
+            text TEXT NOT NULL
+        )
+    """)
     await _db.commit()
 
 
@@ -163,6 +171,33 @@ async def pop_forward(user_id: int) -> str | None:
         await _db.commit()
         return row[0]
     return None
+
+
+# --- Reminders ---
+
+async def save_reminder(chat_id: int, fire_at_utc: str, text: str):
+    """fire_at_utc — ISO datetime без timezone, всегда UTC."""
+    dt_str = fire_at_utc.replace("+00:00", "").split(".")[0]
+    await _db.execute(
+        "INSERT INTO reminders (chat_id, fire_at, text) VALUES (?, ?, ?)",
+        (chat_id, dt_str, text),
+    )
+    await _db.commit()
+
+
+async def get_due_reminders() -> list[dict]:
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    async with _db.execute(
+        "SELECT id, chat_id, text FROM reminders WHERE fire_at <= ?", (now,)
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return [{"id": r[0], "chat_id": r[1], "text": r[2]} for r in rows]
+
+
+async def delete_reminder(reminder_id: int):
+    await _db.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+    await _db.commit()
 
 
 # --- Task list headers (for cleanup after done/delete) ---

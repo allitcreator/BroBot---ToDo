@@ -48,6 +48,20 @@ def confirm_delete_kb(key: str) -> InlineKeyboardMarkup:
     ]])
 
 
+def reminder_ask_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Да", callback_data="reminder:yes"),
+        InlineKeyboardButton(text="Нет", callback_data="reminder:no"),
+    ]])
+
+
+def reminder_where_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Telegram", callback_data="reminder:tg"),
+        InlineKeyboardButton(text="MS Todo", callback_data="reminder:todo"),
+    ]])
+
+
 def settings_kb(confirm_mode: str) -> InlineKeyboardMarkup:
     modes = [
         ("all", "Все задачи"),
