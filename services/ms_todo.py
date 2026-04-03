@@ -92,12 +92,18 @@ def format_due_date_from_task(task: dict) -> str:
         return dt_str[:10]
 
 
-async def create_task(title: str, due_date: str, subtasks: list[str] | None = None, description: str | None = None) -> dict:
+async def create_task(title: str, due_date: str, due_time: str | None = None, subtasks: list[str] | None = None, description: str | None = None) -> dict:
+    if due_time:
+        dt_str = f"{due_date}T{due_time}:00"
+        tz_str = config.USER_TIMEZONE
+    else:
+        dt_str = f"{due_date}T20:00:00"
+        tz_str = "UTC"
     body = {
         "title": title[:1].upper() + title[1:] if title else title,
         "dueDateTime": {
-            "dateTime": f"{due_date}T20:00:00",
-            "timeZone": "UTC",
+            "dateTime": dt_str,
+            "timeZone": tz_str,
         },
         "importance": "normal",
         "status": "notStarted",

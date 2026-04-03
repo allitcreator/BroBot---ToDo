@@ -33,6 +33,7 @@ async def cb_confirm_create(callback: CallbackQuery):
         created = await ms_todo.create_task(
             title=task["title"],
             due_date=task["due_date"],
+            due_time=task.get("due_time"),
             subtasks=task.get("subtasks"),
             description=task.get("description"),
         )

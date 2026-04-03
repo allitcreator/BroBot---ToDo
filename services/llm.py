@@ -121,10 +121,15 @@ async def parse_calendar_details(text: str, today: str | None = None) -> dict:
 async def parse_reminder_offset(text: str, due_date: str, due_time: str) -> str | None:
     """Парсит текст пользователя о времени напоминания.
     Возвращает ISO datetime string в UTC (без timezone суффикса) или None."""
+    user_tz = ZoneInfo(config.USER_TIMEZONE)
+    now_local = datetime.now(user_tz)
+    utc_offset_hours = int(now_local.utcoffset().total_seconds() // 3600)
+    tz_label = f"UTC{'+' if utc_offset_hours >= 0 else ''}{utc_offset_hours}"
+
     prompt = (
-        f"Задача запланирована на {due_date} в {due_time} (московское время, UTC+3). "
+        f"Задача запланирована на {due_date} в {due_time} (местное время пользователя, {tz_label}). "
         f"Пользователь хочет напоминание: \"{text}\"\n"
-        f"Верни JSON с точным временем напоминания в московском времени: "
+        f"Верни JSON с точным временем напоминания в том же местном времени ({tz_label}): "
         f"{{\"fire_at\": \"YYYY-MM-DDTHH:MM:SS\"}}. "
         f"Примеры: \"за 15 минут\" = за 15 мин до {due_time}, \"за час\" = за 60 мин до {due_time}, "
         f"\"точно в 15:00\" = {due_date}T15:00:00. Только JSON."
@@ -147,8 +152,6 @@ async def parse_reminder_offset(text: str, due_date: str, due_time: str) -> str 
     if not fire_at_str:
         return None
 
-    moscow_tz = ZoneInfo("Europe/Moscow")
-    utc_tz = ZoneInfo("UTC")
-    dt_moscow = datetime.fromisoformat(fire_at_str).replace(tzinfo=moscow_tz)
-    dt_utc = dt_moscow.astimezone(utc_tz)
+    dt_local = datetime.fromisoformat(fire_at_str).replace(tzinfo=user_tz)
+    dt_utc = dt_local.astimezone(ZoneInfo("UTC"))
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%S")

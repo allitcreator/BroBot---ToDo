@@ -175,6 +175,7 @@ async def _create_task_and_ask_calendar(message: Message, task: dict):
         created = await ms_todo.create_task(
             title=task["title"],
             due_date=task["due_date"],
+            due_time=task.get("due_time"),
             subtasks=task.get("subtasks"),
             description=task.get("description"),
         )
