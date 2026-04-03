@@ -19,6 +19,7 @@ def calendar_ask_kb() -> InlineKeyboardMarkup:
 def task_actions_kb(key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅", callback_data=f"task:done:{key}"),
+        InlineKeyboardButton(text="❌", callback_data=f"task:delete:{key}"),
         InlineKeyboardButton(text="✏️ Название", callback_data=f"task:edit_title:{key}"),
         InlineKeyboardButton(text="📅 Дата", callback_data=f"task:edit_date:{key}"),
     ]])
@@ -27,8 +28,23 @@ def task_actions_kb(key: str) -> InlineKeyboardMarkup:
 def overdue_task_kb(key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅", callback_data=f"task:done:{key}"),
+        InlineKeyboardButton(text="❌", callback_data=f"task:delete:{key}"),
         InlineKeyboardButton(text="✏️ Название", callback_data=f"task:edit_title:{key}"),
         InlineKeyboardButton(text="📅 Дата", callback_data=f"task:edit_date:{key}"),
+    ]])
+
+
+def confirm_done_kb(key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Выполнено", callback_data=f"task:done_yes:{key}"),
+        InlineKeyboardButton(text="Отмена", callback_data=f"task:action_cancel:{key}"),
+    ]])
+
+
+def confirm_delete_kb(key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"task:delete_yes:{key}"),
+        InlineKeyboardButton(text="Отмена", callback_data=f"task:action_cancel:{key}"),
     ]])
 
 

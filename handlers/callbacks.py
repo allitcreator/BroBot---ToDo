@@ -4,7 +4,7 @@ import config
 from db import storage
 from db.storage import resolve_task_id, register_task_id
 from services import ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb, settings_kb
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb, settings_kb, confirm_done_kb, confirm_delete_kb, task_actions_kb
 from handlers.utils import format_task_preview
 
 router = Router()
@@ -144,13 +144,45 @@ async def cb_cal_no(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("task:done:"), user_filter)
 async def cb_task_done(callback: CallbackQuery):
     key = callback.data.split(":", 2)[2]
+    await callback.message.edit_reply_markup(reply_markup=confirm_done_kb(key))
+    await callback.answer("Подтвердить выполнение?")
+
+
+@router.callback_query(F.data.startswith("task:done_yes:"), user_filter)
+async def cb_task_done_yes(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
     task_id = await resolve_task_id(key) or key
     try:
         await ms_todo.complete_task(task_id)
         await callback.message.edit_reply_markup()
-        await callback.message.answer("✅ Задача выполнена!")
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
+    await callback.answer("✅ Выполнено")
+
+
+@router.callback_query(F.data.startswith("task:delete:"), user_filter)
+async def cb_task_delete(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
+    await callback.message.edit_reply_markup(reply_markup=confirm_delete_kb(key))
+    await callback.answer("Удалить задачу?")
+
+
+@router.callback_query(F.data.startswith("task:delete_yes:"), user_filter)
+async def cb_task_delete_yes(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+    try:
+        await ms_todo.delete_task(task_id)
+        await callback.message.delete()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {e}")
+    await callback.answer("🗑 Удалено")
+
+
+@router.callback_query(F.data.startswith("task:action_cancel:"), user_filter)
+async def cb_task_action_cancel(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
+    await callback.message.edit_reply_markup(reply_markup=task_actions_kb(key))
     await callback.answer()
 
 

@@ -125,6 +125,10 @@ async def complete_task(task_id: str):
     await _request("PATCH", _task_path(task_id), json={"status": "completed"})
 
 
+async def delete_task(task_id: str):
+    await _request("DELETE", _task_path(task_id))
+
+
 async def update_task(task_id: str, title: str | None = None, due_date: str | None = None):
     body = {}
     if title:
