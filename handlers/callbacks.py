@@ -159,8 +159,15 @@ async def cb_edit_title(callback: CallbackQuery):
     user_id = callback.from_user.id
     key = callback.data.split(":", 2)[2]
     task_id = await resolve_task_id(key) or key
-    await storage.set_state(user_id, "editing_task_title", {"task_id": task_id})
-    await callback.message.answer("✏️ Напиши новое название:")
+    prompt_msg = await callback.message.answer("✏️ Напиши новое название:")
+    await storage.set_state(user_id, "editing_task_title", {
+        "task_id": task_id,
+        "key": key,
+        "chat_id": callback.message.chat.id,
+        "task_message_id": callback.message.message_id,
+        "prompt_message_id": prompt_msg.message_id,
+        "current_text": callback.message.text or "",
+    })
     await callback.answer()
 
 
@@ -169,8 +176,15 @@ async def cb_edit_date(callback: CallbackQuery):
     user_id = callback.from_user.id
     key = callback.data.split(":", 2)[2]
     task_id = await resolve_task_id(key) or key
-    await storage.set_state(user_id, "editing_task_date", {"task_id": task_id})
-    await callback.message.answer("📅 Напиши новую дату (например: завтра, в пятницу, 15 апреля):")
+    prompt_msg = await callback.message.answer("📅 Напиши новую дату (например: завтра, в пятницу, 15 апреля):")
+    await storage.set_state(user_id, "editing_task_date", {
+        "task_id": task_id,
+        "key": key,
+        "chat_id": callback.message.chat.id,
+        "task_message_id": callback.message.message_id,
+        "prompt_message_id": prompt_msg.message_id,
+        "current_text": callback.message.text or "",
+    })
     await callback.answer()
 
 

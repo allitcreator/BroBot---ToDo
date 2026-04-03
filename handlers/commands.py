@@ -52,7 +52,10 @@ async def cmd_todotoday(message: Message):
     await message.answer(f"📋 Задачи на сегодня ({len(tasks)}):")
     for task in tasks:
         key = await register_task_id(task["id"])
-        await message.answer(task["title"], reply_markup=task_actions_kb(key))
+        await message.answer(
+            f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
+            reply_markup=task_actions_kb(key),
+        )
 
 
 @router.message(Command("tomorrow"), user_filter)
@@ -70,7 +73,10 @@ async def cmd_tomorrow(message: Message):
     await message.answer(f"📋 Задачи на завтра ({len(tasks)}):")
     for task in tasks:
         key = await register_task_id(task["id"])
-        await message.answer(task["title"], reply_markup=task_actions_kb(key))
+        await message.answer(
+            f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
+            reply_markup=task_actions_kb(key),
+        )
 
 
 @router.message(Command("todoall"), user_filter)

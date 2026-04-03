@@ -268,23 +268,68 @@ async def _handle_edit_pending_title(message: Message, state_data: dict):
 async def _handle_edit_task_title(message: Message, state_data: dict):
     user_id = message.from_user.id
     task_id = state_data.get("task_id")
+    key = state_data.get("key")
+    chat_id = state_data.get("chat_id")
+    task_message_id = state_data.get("task_message_id")
+    prompt_message_id = state_data.get("prompt_message_id")
+    current_text = state_data.get("current_text", "")
+
     text = await _extract_text(message)
     if not text:
         return
+
     try:
         await ms_todo.update_task(task_id, title=text)
-        await message.answer(f"✅ Название обновлено: {text}")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    # Обновляем исходное сообщение задачи
+    if task_message_id and chat_id and key:
+        if " — " in current_text:
+            date_part = current_text[current_text.find(" — "):]
+            new_text = text + date_part
+        else:
+            new_text = text
+        try:
+            from handlers.keyboards import task_actions_kb
+            await message.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=task_message_id,
+                text=new_text,
+                reply_markup=task_actions_kb(key),
+            )
+        except Exception:
+            pass
+
+    # Удаляем сервисные сообщения
+    if prompt_message_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, prompt_message_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     await storage.clear_state(user_id)
 
 
 async def _handle_edit_task_date(message: Message, state_data: dict):
     user_id = message.from_user.id
     task_id = state_data.get("task_id")
+    key = state_data.get("key")
+    chat_id = state_data.get("chat_id")
+    task_message_id = state_data.get("task_message_id")
+    prompt_message_id = state_data.get("prompt_message_id")
+    current_text = state_data.get("current_text", "")
+
     text = await _extract_text(message)
     if not text:
         return
+
     try:
         parsed = await llm.parse_task(text)
         new_date = parsed.get("due_date")
@@ -292,11 +337,43 @@ async def _handle_edit_task_date(message: Message, state_data: dict):
             await message.answer("❌ Не удалось распознать дату")
             return
         await ms_todo.update_task(task_id, due_date=new_date)
-        from datetime import date
-        d = date.fromisoformat(new_date)
-        await message.answer(f"✅ Дата обновлена: {d.strftime('%d.%m.%Y')}")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    # Обновляем исходное сообщение задачи
+    if task_message_id and chat_id and key:
+        from datetime import date
+        d = date.fromisoformat(new_date)
+        new_date_str = d.strftime("%d.%m.%Y")
+        if " — " in current_text:
+            title_part = current_text[:current_text.find(" — ")]
+        else:
+            title_part = current_text
+        new_text = f"{title_part} — {new_date_str}"
+        try:
+            from handlers.keyboards import task_actions_kb
+            await message.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=task_message_id,
+                text=new_text,
+                reply_markup=task_actions_kb(key),
+            )
+        except Exception:
+            pass
+
+    # Удаляем сервисные сообщения
+    if prompt_message_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, prompt_message_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     await storage.clear_state(user_id)
 
 
