@@ -154,7 +154,7 @@ async def cb_task_done_yes(callback: CallbackQuery):
     task_id = await resolve_task_id(key) or key
     try:
         await ms_todo.complete_task(task_id)
-        await callback.message.edit_reply_markup()
+        await callback.message.delete()
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
     await callback.answer("✅ Выполнено")
