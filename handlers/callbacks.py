@@ -545,16 +545,18 @@ def _extract_due_time(task: dict) -> str | None:
     dt_str = due.get("dateTime", "")
     if not dt_str:
         return None
+    tz_str = due.get("timeZone", "UTC")
+    # Задачи без реального времени хранятся с timeZone=UTC (заглушка T20:00:00)
+    if tz_str == "UTC":
+        return None
     try:
         from datetime import datetime
         from zoneinfo import ZoneInfo
         dt_str_clean = dt_str.split(".")[0]
-        tz_str = due.get("timeZone", "UTC")
         tz = ZoneInfo(tz_str)
         dt = datetime.fromisoformat(dt_str_clean).replace(tzinfo=tz)
         local_dt = dt.astimezone(ZoneInfo(config.USER_TIMEZONE))
         time_str = local_dt.strftime("%H:%M")
-        # Если время 00:00 — скорее всего просто дата без времени
         return time_str if time_str != "00:00" else None
     except Exception:
         return None
