@@ -48,6 +48,18 @@ async def handle_message(message: Message):
         await _handle_reminder_offset(message, state_data)
         return
 
+    if state == "list_reminder_need_time":
+        await _handle_list_reminder_need_time(message, state_data)
+        return
+
+    if state == "list_cal_waiting_duration":
+        await _handle_list_cal_duration(message, state_data)
+        return
+
+    if state == "list_cal_waiting_time_duration":
+        await _handle_list_cal_time_duration(message, state_data)
+        return
+
     if state == "cal_waiting_time_duration":
         await _handle_cal_time_and_duration(message, state_data)
         return
@@ -399,12 +411,14 @@ async def _handle_cal_time_and_duration(message: Message, state_data: dict):
             await message.answer("❌ Не удалось распознать время или длительность. Попробуй ещё раз или /skip")
             return
 
-        await google_calendar.create_event(
+        event = await google_calendar.create_event(
             title=state_data["title"],
             due_date=state_data["due_date"],
             due_time=due_time,
             duration_minutes=duration_minutes,
         )
+        if state_data.get("task_id"):
+            await storage.save_calendar_link(state_data["task_id"], event["id"])
         await message.answer("✅ Событие добавлено в Google Calendar")
         await storage.clear_state(user_id)
         await ask_reminder_if_needed(
@@ -459,6 +473,8 @@ async def _handle_reminder_offset(message: Message, state_data: dict):
         "fire_at_utc": fire_at_utc,
         "chat_id": chat_id,
         "where_q_msg_id": where_msg.message_id,
+        "task_message_id": state_data.get("task_message_id"),
+        "task_key": state_data.get("task_key"),
     })
 
 
@@ -475,12 +491,14 @@ async def _handle_cal_duration(message: Message, state_data: dict):
             await message.answer("❌ Не удалось распознать длительность. Попробуй ещё раз или /skip")
             return
 
-        await google_calendar.create_event(
+        event = await google_calendar.create_event(
             title=state_data["title"],
             due_date=state_data["due_date"],
             due_time=state_data["due_time"],
             duration_minutes=duration_minutes,
         )
+        if state_data.get("task_id"):
+            await storage.save_calendar_link(state_data["task_id"], event["id"])
         await message.answer("✅ Событие добавлено в Google Calendar")
         await storage.clear_state(user_id)
         await ask_reminder_if_needed(
@@ -490,3 +508,159 @@ async def _handle_cal_duration(message: Message, state_data: dict):
     except Exception as e:
         await message.answer(f"❌ Ошибка при добавлении в календарь: {e}")
         await storage.clear_state(user_id)
+
+
+async def _handle_list_reminder_need_time(message: Message, state_data: dict):
+    """Пользователь ввёл время для задачи без due_time перед созданием напоминания."""
+    user_id = message.from_user.id
+    chat_id = state_data.get("chat_id")
+    prompt_msg_id = state_data.get("prompt_msg_id")
+
+    text = await _extract_text(message)
+    if not text:
+        return
+
+    try:
+        details = await llm.parse_calendar_details(text)
+        due_time = details.get("due_time")
+        if not due_time:
+            await message.answer("❌ Не удалось распознать время. Попробуй ещё раз (например: 15:00):")
+            return
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    if prompt_msg_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, prompt_msg_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    offset_msg = await message.bot.send_message(
+        chat_id,
+        "⏰ За сколько напомнить? (например: за 15 минут, за час, точно в 15:00)",
+    )
+    await storage.set_state(user_id, "reminder_ask_offset", {
+        "task_id": state_data["task_id"],
+        "task_title": state_data["task_title"],
+        "due_date": state_data["due_date"],
+        "due_time": due_time,
+        "chat_id": chat_id,
+        "offset_q_msg_id": offset_msg.message_id,
+        "task_message_id": state_data.get("task_message_id"),
+        "task_key": state_data.get("task_key"),
+    })
+
+
+async def _handle_list_cal_duration(message: Message, state_data: dict):
+    """Пользователь ввёл длительность события при добавлении в календарь из списка."""
+    user_id = message.from_user.id
+    chat_id = state_data.get("chat_id")
+    prompt_msg_id = state_data.get("prompt_msg_id")
+
+    text = await _extract_text(message)
+    if not text:
+        return
+
+    try:
+        details = await llm.parse_calendar_details(text)
+        duration_minutes = details.get("duration_minutes")
+        if not duration_minutes:
+            await message.answer("❌ Не удалось распознать длительность. Попробуй ещё раз (например: 1 час, 30 минут):")
+            return
+
+        event = await google_calendar.create_event(
+            title=state_data["task_title"],
+            due_date=state_data["due_date"],
+            due_time=state_data["due_time"],
+            duration_minutes=duration_minutes,
+        )
+        await storage.save_calendar_link(state_data["task_id"], event["id"])
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    if prompt_msg_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, prompt_msg_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    task_message_id = state_data.get("task_message_id")
+    task_key = state_data.get("task_key")
+    if task_message_id and task_key and chat_id:
+        try:
+            from handlers.keyboards import task_actions_kb
+            await message.bot.edit_message_reply_markup(
+                chat_id=chat_id, message_id=task_message_id, reply_markup=task_actions_kb(task_key),
+            )
+        except Exception:
+            pass
+
+    await storage.clear_state(user_id)
+    await message.bot.send_message(chat_id, "✅ Событие добавлено в Google Calendar")
+
+
+async def _handle_list_cal_time_duration(message: Message, state_data: dict):
+    """Пользователь ввёл время и длительность при добавлении в календарь из списка."""
+    user_id = message.from_user.id
+    chat_id = state_data.get("chat_id")
+    prompt_msg_id = state_data.get("prompt_msg_id")
+
+    text = await _extract_text(message)
+    if not text:
+        return
+
+    try:
+        details = await llm.parse_calendar_details(text)
+        due_time = details.get("due_time")
+        duration_minutes = details.get("duration_minutes")
+        if not due_time or not duration_minutes:
+            await message.answer("❌ Не удалось распознать время и длительность. Попробуй (например: 15:00, 1 час):")
+            return
+
+        event = await google_calendar.create_event(
+            title=state_data["task_title"],
+            due_date=state_data["due_date"],
+            due_time=due_time,
+            duration_minutes=duration_minutes,
+        )
+        await storage.save_calendar_link(state_data["task_id"], event["id"])
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    if prompt_msg_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, prompt_msg_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    task_message_id = state_data.get("task_message_id")
+    task_key = state_data.get("task_key")
+    if task_message_id and task_key and chat_id:
+        try:
+            from handlers.keyboards import task_actions_kb
+            await message.bot.edit_message_reply_markup(
+                chat_id=chat_id, message_id=task_message_id, reply_markup=task_actions_kb(task_key),
+            )
+        except Exception:
+            pass
+
+    await storage.clear_state(user_id)
+    await message.bot.send_message(chat_id, "✅ Событие добавлено в Google Calendar")

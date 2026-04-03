@@ -85,6 +85,25 @@ async def create_event(
     return resp.json()
 
 
+async def delete_event(event_id: str):
+    token = await _get_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    client = get_http_client()
+    resp = await client.delete(
+        f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events/{event_id}",
+        headers=headers,
+    )
+    if resp.status_code == 401:
+        await _refresh_token()
+        headers["Authorization"] = f"Bearer {_access_token}"
+        resp = await client.delete(
+            f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events/{event_id}",
+            headers=headers,
+        )
+    if resp.status_code not in (200, 204):
+        resp.raise_for_status()
+
+
 async def get_events_week() -> list[dict]:
     """Получает события на ближайшие 7 дней."""
     token = await _get_token()

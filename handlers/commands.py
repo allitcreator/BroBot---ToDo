@@ -7,11 +7,34 @@ import config
 from db import storage
 from services import ms_todo, google_calendar
 from handlers.keyboards import task_actions_kb, overdue_task_kb, settings_kb
+from handlers.utils import build_task_text
 from db.storage import register_task_id, save_task_header
 
 router = Router()
 
 user_filter = F.from_user.func(lambda u: u.id == config.TELEGRAM_USER_ID)
+
+
+async def _send_task_list(message: Message, tasks: list[dict], header: str):
+    """Универсальный вывод списка задач с маркерами напоминаний и календаря."""
+    task_ids = [t["id"] for t in tasks]
+    tg_reminder_ids = await storage.get_task_ids_with_any_reminder(task_ids)
+    calendar_ids = await storage.get_task_ids_in_calendar(task_ids)
+
+    header_msg = await message.answer(header)
+    for task in tasks:
+        tid = task["id"]
+        has_reminder = task.get("isReminderOn", False) or tid in tg_reminder_ids
+        in_calendar = tid in calendar_ids
+        key = await register_task_id(tid)
+        await save_task_header(key, message.chat.id, header_msg.message_id)
+        text = build_task_text(
+            task["title"],
+            ms_todo.format_due_date_from_task(task),
+            has_reminder,
+            in_calendar,
+        )
+        await message.answer(text, reply_markup=task_actions_kb(key))
 
 
 @router.message(Command("start"), user_filter)
@@ -24,7 +47,8 @@ async def cmd_start(message: Message):
         "/tomorrow — задачи на завтра\n"
         "/todoall — все открытые задачи\n"
         "/overdue — просроченные\n"
-        "/week — события на неделю\n"
+        "/reminders — задачи с напоминаниями\n"
+        "/incalendar — задачи в Google Calendar\n"
         "/stats — статистика\n"
         "/settings — настройки"
     )
@@ -44,19 +68,10 @@ async def cmd_todotoday(message: Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
-
     if not tasks:
         await message.answer("📭 Задач на сегодня нет.")
         return
-
-    header_msg = await message.answer(f"📋 Задачи на сегодня ({len(tasks)}):")
-    for task in tasks:
-        key = await register_task_id(task["id"])
-        await save_task_header(key, message.chat.id, header_msg.message_id)
-        await message.answer(
-            f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
-            reply_markup=task_actions_kb(key),
-        )
+    await _send_task_list(message, tasks, f"📋 Задачи на сегодня ({len(tasks)}):")
 
 
 @router.message(Command("tomorrow"), user_filter)
@@ -66,19 +81,10 @@ async def cmd_tomorrow(message: Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
-
     if not tasks:
         await message.answer("📭 Задач на завтра нет.")
         return
-
-    header_msg = await message.answer(f"📋 Задачи на завтра ({len(tasks)}):")
-    for task in tasks:
-        key = await register_task_id(task["id"])
-        await save_task_header(key, message.chat.id, header_msg.message_id)
-        await message.answer(
-            f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
-            reply_markup=task_actions_kb(key),
-        )
+    await _send_task_list(message, tasks, f"📋 Задачи на завтра ({len(tasks)}):")
 
 
 @router.message(Command("todoall"), user_filter)
@@ -88,19 +94,10 @@ async def cmd_todoall(message: Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
-
     if not tasks:
         await message.answer("📭 Открытых задач нет.")
         return
-
-    header_msg = await message.answer(f"📋 Все открытые задачи ({len(tasks)}):")
-    for task in tasks:
-        key = await register_task_id(task["id"])
-        await save_task_header(key, message.chat.id, header_msg.message_id)
-        await message.answer(
-            f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
-            reply_markup=task_actions_kb(key),
-        )
+    await _send_task_list(message, tasks, f"📋 Все открытые задачи ({len(tasks)}):")
 
 
 @router.message(Command("overdue"), user_filter)
@@ -110,63 +107,49 @@ async def cmd_overdue(message: Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
-
     if not tasks:
         await message.answer("✅ Просроченных задач нет.")
         return
-
-    header_msg = await message.answer(f"⚠️ Просроченные задачи ({len(tasks)}):")
-    for task in tasks:
-        key = await register_task_id(task["id"])
-        await save_task_header(key, message.chat.id, header_msg.message_id)
-        await message.answer(
-            f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
-            reply_markup=overdue_task_kb(key),
-        )
+    await _send_task_list(message, tasks, f"⚠️ Просроченные задачи ({len(tasks)}):")
 
 
-WEEKDAYS_RU = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-
-
-@router.message(Command("week"), user_filter)
-async def cmd_week(message: Message):
+@router.message(Command("reminders"), user_filter)
+async def cmd_reminders(message: Message):
     try:
-        events = await google_calendar.get_events_week()
+        all_tasks = await ms_todo.get_all_tasks()
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
 
-    if not events:
-        await message.answer("📭 Событий на ближайшую неделю нет.")
+    tg_reminder_ids = await storage.get_all_telegram_reminder_task_ids()
+    tasks = [t for t in all_tasks if t.get("isReminderOn", False) or t["id"] in tg_reminder_ids]
+
+    if not tasks:
+        await message.answer("📭 Задач с напоминаниями нет.")
+        return
+    await _send_task_list(message, tasks, f"⏰ Задачи с напоминаниями ({len(tasks)}):")
+
+
+@router.message(Command("incalendar"), user_filter)
+async def cmd_incalendar(message: Message):
+    cal_task_ids = await storage.get_all_calendar_task_ids()
+    if not cal_task_ids:
+        await message.answer("📭 Нет задач добавленных в Google Calendar.")
         return
 
-    tz = ZoneInfo(config.USER_TIMEZONE)
+    tasks = []
+    for tid in cal_task_ids:
+        try:
+            task = await ms_todo.get_task(tid)
+            if task.get("status") != "completed":
+                tasks.append(task)
+        except Exception:
+            pass
 
-    # Группируем по дням
-    days: dict[str, list[str]] = {}
-    for ev in events:
-        start = ev.get("start", {})
-        # Целодневные события
-        if "date" in start:
-            day_str = start["date"]
-            time_str = "весь день"
-        else:
-            dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
-            day_str = dt.strftime("%Y-%m-%d")
-            time_str = dt.strftime("%H:%M")
-
-        summary = ev.get("summary", "Без названия")
-        days.setdefault(day_str, []).append(f"  {time_str} — {summary}")
-
-    lines = ["📅 События на неделю:\n"]
-    for day_str in sorted(days):
-        d = datetime.strptime(day_str, "%Y-%m-%d").date()
-        weekday = WEEKDAYS_RU[d.weekday()]
-        lines.append(f"**{weekday}, {d.strftime('%d.%m')}**")
-        lines.extend(days[day_str])
-        lines.append("")
-
-    await message.answer("\n".join(lines))
+    if not tasks:
+        await message.answer("📭 Нет задач добавленных в Google Calendar.")
+        return
+    await _send_task_list(message, tasks, f"🗓 В Google Calendar ({len(tasks)}):")
 
 
 @router.message(Command("stats"), user_filter)

@@ -4,9 +4,12 @@ import config
 from db import storage
 from db.storage import resolve_task_id, register_task_id, remove_task_header
 from services import ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb, settings_kb, confirm_done_kb, confirm_delete_kb, task_actions_kb, reminder_where_kb
-from handlers.utils import ask_reminder_if_needed
-from handlers.utils import format_task_preview
+from handlers.keyboards import (
+    confirm_task_kb, calendar_ask_kb, settings_kb,
+    confirm_done_kb, confirm_delete_kb, task_actions_kb,
+    task_more_kb, reminder_where_kb, reminder_ask_kb,
+)
+from handlers.utils import ask_reminder_if_needed, format_task_preview, rebuild_task_text
 
 router = Router()
 
@@ -42,7 +45,6 @@ async def cb_confirm_create(callback: CallbackQuery):
     await callback.message.answer(f"✅ Задача создана: {task['title']}")
     await callback.answer()
 
-    # Спрашиваем про календарь только если это событие
     if not task.get("is_event"):
         await ask_reminder_if_needed(
             callback.bot, callback.message.chat.id, user_id,
@@ -114,14 +116,14 @@ async def cb_cal_yes(callback: CallbackQuery):
         return
 
     if state == "cal_ask":
-        # Есть время и длительность — создаём сразу
         try:
-            await google_calendar.create_event(
+            event = await google_calendar.create_event(
                 title=state_data["title"],
                 due_date=state_data["due_date"],
                 due_time=state_data["due_time"],
                 duration_minutes=state_data["duration_minutes"],
             )
+            await storage.save_calendar_link(state_data["task_id"], event["id"])
             await callback.message.answer("✅ Событие добавлено в Google Calendar")
         except Exception as e:
             await callback.message.answer(f"❌ Ошибка: {e}")
@@ -132,11 +134,9 @@ async def cb_cal_yes(callback: CallbackQuery):
         )
 
     elif state == "cal_waiting_duration":
-        # Уже есть время, ждём длительность
         await callback.message.answer("Напиши длительность (например: 1 час, 30 минут):")
 
     elif state == "cal_waiting_time_duration":
-        # Ждём время и длительность
         await callback.message.answer("Напиши время и длительность (например: в 14:00, 1 час):")
 
 
@@ -155,7 +155,7 @@ async def cb_cal_no(callback: CallbackQuery):
         )
 
 
-# --- Действия с задачами ---
+# --- Основные действия с задачами ---
 
 @router.callback_query(F.data.startswith("task:done:"), user_filter)
 async def cb_task_done(callback: CallbackQuery):
@@ -216,6 +216,27 @@ async def cb_task_action_cancel(callback: CallbackQuery):
     await callback.answer()
 
 
+# --- Подробнее ---
+
+@router.callback_query(F.data.startswith("task:more:"), user_filter)
+async def cb_task_more(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+    has_reminder = await storage.has_task_any_reminder(task_id)
+    in_calendar = bool(await storage.get_calendar_link(task_id))
+    await callback.message.edit_reply_markup(reply_markup=task_more_kb(key, has_reminder, in_calendar))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("task:back:"), user_filter)
+async def cb_task_back(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
+    await callback.message.edit_reply_markup(reply_markup=task_actions_kb(key))
+    await callback.answer()
+
+
+# --- Редактирование из Подробнее ---
+
 @router.callback_query(F.data.startswith("task:edit_title:"), user_filter)
 async def cb_edit_title(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -250,7 +271,149 @@ async def cb_edit_date(callback: CallbackQuery):
     await callback.answer()
 
 
-# --- Напоминания ---
+# --- Напоминание из Подробнее ---
+
+@router.callback_query(F.data.startswith("task:add_reminder:"), user_filter)
+async def cb_task_add_reminder(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+
+    try:
+        task = await ms_todo.get_task(task_id)
+    except Exception as e:
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
+        return
+
+    due_time = task.get("dueDateTime") and _extract_due_time(task)
+
+    if due_time:
+        due_date = ms_todo.format_due_date_from_task(task)
+        # Используем ISO дату из задачи
+        from services.ms_todo import _task_local_date
+        iso_date = _task_local_date(task) or ""
+        prompt_msg = await callback.bot.send_message(
+            callback.message.chat.id,
+            "⏰ За сколько напомнить? (например: за 15 минут, за час, точно в 15:00)",
+        )
+        await storage.set_state(user_id, "reminder_ask_offset", {
+            "task_id": task_id,
+            "task_title": task["title"],
+            "due_date": iso_date,
+            "due_time": due_time,
+            "chat_id": callback.message.chat.id,
+            "offset_q_msg_id": prompt_msg.message_id,
+            "task_message_id": callback.message.message_id,
+            "task_key": key,
+        })
+    else:
+        prompt_msg = await callback.bot.send_message(
+            callback.message.chat.id,
+            "⏰ Введи время задачи для напоминания (например: 15:00):",
+        )
+        from services.ms_todo import _task_local_date
+        iso_date = _task_local_date(task) or ""
+        await storage.set_state(user_id, "list_reminder_need_time", {
+            "task_id": task_id,
+            "task_title": task["title"],
+            "due_date": iso_date,
+            "chat_id": callback.message.chat.id,
+            "prompt_msg_id": prompt_msg.message_id,
+            "task_message_id": callback.message.message_id,
+            "task_key": key,
+        })
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("task:del_reminder:"), user_filter)
+async def cb_task_del_reminder(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+
+    try:
+        await storage.delete_telegram_reminder_by_task(task_id)
+        await ms_todo.remove_reminder(task_id)
+    except Exception as e:
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
+        return
+
+    new_text = rebuild_task_text(callback.message.text or "", has_reminder=False,
+                                  in_calendar=bool(await storage.get_calendar_link(task_id)))
+    try:
+        await callback.message.edit_text(new_text, reply_markup=task_more_kb(key, False, bool(await storage.get_calendar_link(task_id))))
+    except Exception:
+        pass
+    await callback.answer("⏰ Напоминание удалено")
+
+
+# --- Календарь из Подробнее ---
+
+@router.callback_query(F.data.startswith("task:add_calendar:"), user_filter)
+async def cb_task_add_calendar(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+
+    try:
+        task = await ms_todo.get_task(task_id)
+    except Exception as e:
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
+        return
+
+    from services.ms_todo import _task_local_date
+    iso_date = _task_local_date(task) or ""
+    due_time = _extract_due_time(task)
+
+    state_data = {
+        "task_id": task_id,
+        "task_title": task["title"],
+        "due_date": iso_date,
+        "due_time": due_time,
+        "chat_id": callback.message.chat.id,
+        "task_message_id": callback.message.message_id,
+        "task_key": key,
+    }
+
+    if due_time:
+        prompt_msg = await callback.bot.send_message(
+            callback.message.chat.id,
+            "🗓 Введи длительность события (например: 1 час, 30 минут):",
+        )
+        state_data["prompt_msg_id"] = prompt_msg.message_id
+        await storage.set_state(user_id, "list_cal_waiting_duration", state_data)
+    else:
+        prompt_msg = await callback.bot.send_message(
+            callback.message.chat.id,
+            "🗓 Введи время и длительность (например: 15:00, 1 час):",
+        )
+        state_data["prompt_msg_id"] = prompt_msg.message_id
+        await storage.set_state(user_id, "list_cal_waiting_time_duration", state_data)
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("task:del_calendar:"), user_filter)
+async def cb_task_del_calendar(callback: CallbackQuery):
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+
+    event_id = await storage.delete_calendar_link(task_id)
+    if event_id:
+        try:
+            await google_calendar.delete_event(event_id)
+        except Exception:
+            pass
+
+    new_text = rebuild_task_text(callback.message.text or "", has_reminder=await storage.has_task_any_reminder(task_id), in_calendar=False)
+    try:
+        await callback.message.edit_text(new_text, reply_markup=task_more_kb(key, await storage.has_task_any_reminder(task_id), False))
+    except Exception:
+        pass
+    await callback.answer("🗓 Убрано из календаря")
+
+
+# --- Напоминания (глобальный флоу) ---
 
 @router.callback_query(F.data == "reminder:yes", user_filter)
 async def cb_reminder_yes(callback: CallbackQuery):
@@ -303,11 +466,15 @@ async def cb_reminder_tg(callback: CallbackQuery):
             state_data["chat_id"],
             state_data["fire_at_utc"],
             f"⏰ Напоминание: {state_data['task_title']}",
+            task_id=state_data.get("task_id"),
         )
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
         await callback.answer()
         return
+
+    # Обновляем маркеры на сообщении задачи если пришли из списка
+    await _update_task_message_markers(callback, state_data)
 
     await storage.clear_state(user_id)
     try:
@@ -327,10 +494,19 @@ async def cb_reminder_todo(callback: CallbackQuery):
 
     try:
         await ms_todo.set_reminder(state_data["task_id"], state_data["fire_at_utc"])
+        # Сохраняем в нашу БД для трекинга
+        await storage.save_reminder(
+            state_data["chat_id"],
+            state_data["fire_at_utc"],
+            f"⏰ Напоминание: {state_data['task_title']}",
+            task_id=state_data.get("task_id"),
+        )
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
         await callback.answer()
         return
+
+    await _update_task_message_markers(callback, state_data)
 
     await storage.clear_state(user_id)
     try:
@@ -356,3 +532,53 @@ async def cb_settings_confirm_mode(callback: CallbackQuery):
         reply_markup=settings_kb(mode),
     )
     await callback.answer(f"Сохранено: {mode_labels.get(mode, mode)}")
+
+
+# --- Вспомогательные функции ---
+
+def _extract_due_time(task: dict) -> str | None:
+    """Извлекает время из dueDateTime задачи MS Todo."""
+    due = task.get("dueDateTime")
+    if not due:
+        return None
+    dt_str = due.get("dateTime", "")
+    if not dt_str:
+        return None
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        dt_str_clean = dt_str.split(".")[0]
+        tz_str = due.get("timeZone", "UTC")
+        tz = ZoneInfo(tz_str)
+        dt = datetime.fromisoformat(dt_str_clean).replace(tzinfo=tz)
+        local_dt = dt.astimezone(ZoneInfo(config.USER_TIMEZONE))
+        time_str = local_dt.strftime("%H:%M")
+        # Если время 00:00 — скорее всего просто дата без времени
+        return time_str if time_str != "00:00" else None
+    except Exception:
+        return None
+
+
+async def _update_task_message_markers(callback, state_data: dict):
+    """Обновляет маркеры ⏰/🗓 на сообщении задачи после добавления напоминания/календаря."""
+    task_message_id = state_data.get("task_message_id")
+    task_key = state_data.get("task_key")
+    chat_id = state_data.get("chat_id")
+    task_id = state_data.get("task_id")
+
+    if not (task_message_id and task_key and chat_id and task_id):
+        return
+
+    try:
+        has_reminder = await storage.has_task_any_reminder(task_id)
+        in_calendar = bool(await storage.get_calendar_link(task_id))
+        # Получаем текущий текст сообщения задачи
+        # Не можем получить напрямую — используем rebuild без исходного текста
+        # Отправляем отдельный запрос не нужен — просто обновляем клавиатуру
+        await callback.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=task_message_id,
+            reply_markup=task_actions_kb(task_key),
+        )
+    except Exception:
+        pass

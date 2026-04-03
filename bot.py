@@ -36,7 +36,8 @@ async def on_startup(bot: Bot):
         BotCommand(command="tomorrow", description="Задачи на завтра"),
         BotCommand(command="todoall", description="Все открытые задачи"),
         BotCommand(command="overdue", description="Просроченные задачи"),
-        BotCommand(command="week", description="События на неделю"),
+        BotCommand(command="reminders", description="Задачи с напоминаниями"),
+        BotCommand(command="incalendar", description="Задачи в Google Calendar"),
         BotCommand(command="stats", description="Статистика"),
         BotCommand(command="settings", description="Настройки"),
     ])
@@ -96,7 +97,8 @@ async def run_polling():
         BotCommand(command="tomorrow", description="Задачи на завтра"),
         BotCommand(command="todoall", description="Все открытые задачи"),
         BotCommand(command="overdue", description="Просроченные задачи"),
-        BotCommand(command="week", description="События на неделю"),
+        BotCommand(command="reminders", description="Задачи с напоминаниями"),
+        BotCommand(command="incalendar", description="Задачи в Google Calendar"),
         BotCommand(command="stats", description="Статистика"),
         BotCommand(command="settings", description="Настройки"),
     ])

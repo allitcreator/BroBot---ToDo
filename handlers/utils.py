@@ -22,6 +22,31 @@ async def ask_reminder_if_needed(bot, chat_id: int, user_id: int, task_id: str, 
     })
 
 
+def build_task_text(title: str, date_str: str, has_reminder: bool, in_calendar: bool) -> str:
+    """Строит текст сообщения задачи с маркерами."""
+    prefix = ""
+    if has_reminder:
+        prefix += "⏰"
+    if in_calendar:
+        prefix += "🗓"
+    if prefix:
+        prefix += " "
+    return f"{prefix}{title} — {date_str}"
+
+
+def rebuild_task_text(current_text: str, has_reminder: bool, in_calendar: bool) -> str:
+    """Обновляет маркеры в уже существующем тексте задачи."""
+    clean = current_text.lstrip("⏰🗓 ")
+    prefix = ""
+    if has_reminder:
+        prefix += "⏰"
+    if in_calendar:
+        prefix += "🗓"
+    if prefix:
+        prefix += " "
+    return prefix + clean
+
+
 def format_task_preview(task: dict) -> str:
     lines = [f"📌 {task['title']}"]
 

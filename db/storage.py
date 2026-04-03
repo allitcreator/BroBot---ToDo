@@ -54,10 +54,24 @@ async def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             chat_id INTEGER NOT NULL,
             fire_at TEXT NOT NULL,
-            text TEXT NOT NULL
+            text TEXT NOT NULL,
+            task_id TEXT
+        )
+    """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS task_calendar_links (
+            task_id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL
         )
     """)
     await _db.commit()
+
+    # Migrate: add task_id column to reminders if it doesn't exist yet
+    try:
+        await _db.execute("ALTER TABLE reminders ADD COLUMN task_id TEXT")
+        await _db.commit()
+    except Exception:
+        pass  # column already exists
 
 
 async def close_db():
@@ -150,6 +164,14 @@ async def register_task_id(full_id: str) -> str:
     return key
 
 
+async def resolve_task_id(key: str) -> str | None:
+    async with _db.execute(
+        "SELECT full_id FROM task_ids WHERE key = ?", (key,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    return row[0] if row else None
+
+
 # --- Saved forwards ---
 
 async def save_forward(user_id: int, description: str):
@@ -175,12 +197,12 @@ async def pop_forward(user_id: int) -> str | None:
 
 # --- Reminders ---
 
-async def save_reminder(chat_id: int, fire_at_utc: str, text: str):
+async def save_reminder(chat_id: int, fire_at_utc: str, text: str, task_id: str | None = None):
     """fire_at_utc — ISO datetime без timezone, всегда UTC."""
     dt_str = fire_at_utc.replace("+00:00", "").split(".")[0]
     await _db.execute(
-        "INSERT INTO reminders (chat_id, fire_at, text) VALUES (?, ?, ?)",
-        (chat_id, dt_str, text),
+        "INSERT INTO reminders (chat_id, fire_at, text, task_id) VALUES (?, ?, ?, ?)",
+        (chat_id, dt_str, text, task_id),
     )
     await _db.commit()
 
@@ -198,6 +220,87 @@ async def get_due_reminders() -> list[dict]:
 async def delete_reminder(reminder_id: int):
     await _db.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
     await _db.commit()
+
+
+async def has_task_any_reminder(task_id: str) -> bool:
+    async with _db.execute(
+        "SELECT 1 FROM reminders WHERE task_id = ? LIMIT 1", (task_id,)
+    ) as cursor:
+        return await cursor.fetchone() is not None
+
+
+async def delete_telegram_reminder_by_task(task_id: str):
+    await _db.execute("DELETE FROM reminders WHERE task_id = ?", (task_id,))
+    await _db.commit()
+
+
+async def get_task_ids_with_any_reminder(task_ids: list[str]) -> set[str]:
+    """Возвращает task_id-ы из переданного списка у которых есть Telegram-напоминание."""
+    if not task_ids:
+        return set()
+    placeholders = ",".join("?" * len(task_ids))
+    async with _db.execute(
+        f"SELECT DISTINCT task_id FROM reminders WHERE task_id IN ({placeholders})",
+        task_ids,
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return {r[0] for r in rows}
+
+
+async def get_all_telegram_reminder_task_ids() -> set[str]:
+    async with _db.execute(
+        "SELECT DISTINCT task_id FROM reminders WHERE task_id IS NOT NULL"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return {r[0] for r in rows}
+
+
+# --- Google Calendar links ---
+
+async def save_calendar_link(task_id: str, event_id: str):
+    await _db.execute(
+        "INSERT OR REPLACE INTO task_calendar_links (task_id, event_id) VALUES (?, ?)",
+        (task_id, event_id),
+    )
+    await _db.commit()
+
+
+async def get_calendar_link(task_id: str) -> str | None:
+    async with _db.execute(
+        "SELECT event_id FROM task_calendar_links WHERE task_id = ?", (task_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    return row[0] if row else None
+
+
+async def delete_calendar_link(task_id: str) -> str | None:
+    """Удаляет связь и возвращает event_id."""
+    event_id = await get_calendar_link(task_id)
+    if event_id:
+        await _db.execute(
+            "DELETE FROM task_calendar_links WHERE task_id = ?", (task_id,)
+        )
+        await _db.commit()
+    return event_id
+
+
+async def get_task_ids_in_calendar(task_ids: list[str]) -> set[str]:
+    """Возвращает task_id-ы из переданного списка которые есть в task_calendar_links."""
+    if not task_ids:
+        return set()
+    placeholders = ",".join("?" * len(task_ids))
+    async with _db.execute(
+        f"SELECT task_id FROM task_calendar_links WHERE task_id IN ({placeholders})",
+        task_ids,
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return {r[0] for r in rows}
+
+
+async def get_all_calendar_task_ids() -> list[str]:
+    async with _db.execute("SELECT task_id FROM task_calendar_links") as cursor:
+        rows = await cursor.fetchall()
+    return [r[0] for r in rows]
 
 
 # --- Task list headers (for cleanup after done/delete) ---
@@ -231,13 +334,3 @@ async def remove_task_header(key: str) -> tuple[int, int] | None:
     if remaining == 0:
         return (chat_id, header_message_id)
     return None
-
-
-# --- Task ID registry (persistent) ---
-
-async def resolve_task_id(key: str) -> str | None:
-    async with _db.execute(
-        "SELECT full_id FROM task_ids WHERE key = ?", (key,)
-    ) as cursor:
-        row = await cursor.fetchone()
-    return row[0] if row else None

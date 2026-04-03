@@ -129,6 +129,14 @@ async def delete_task(task_id: str):
     await _request("DELETE", _task_path(task_id))
 
 
+async def get_task(task_id: str) -> dict:
+    return await _request("GET", _task_path(task_id))
+
+
+async def remove_reminder(task_id: str):
+    await _request("PATCH", _task_path(task_id), json={"isReminderOn": False})
+
+
 async def set_reminder(task_id: str, fire_at_utc: str):
     """Устанавливает напоминание в MS Todo. fire_at_utc — ISO datetime в UTC."""
     await _request("PATCH", _task_path(task_id), json={

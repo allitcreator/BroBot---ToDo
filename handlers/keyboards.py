@@ -20,18 +20,38 @@ def task_actions_kb(key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅", callback_data=f"task:done:{key}"),
         InlineKeyboardButton(text="❌", callback_data=f"task:delete:{key}"),
-        InlineKeyboardButton(text="✏️ Название", callback_data=f"task:edit_title:{key}"),
-        InlineKeyboardButton(text="📅 Дата", callback_data=f"task:edit_date:{key}"),
+        InlineKeyboardButton(text="⚙️ Подробнее", callback_data=f"task:more:{key}"),
     ]])
 
 
+# Алиас для совместимости
 def overdue_task_kb(key: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅", callback_data=f"task:done:{key}"),
-        InlineKeyboardButton(text="❌", callback_data=f"task:delete:{key}"),
-        InlineKeyboardButton(text="✏️ Название", callback_data=f"task:edit_title:{key}"),
-        InlineKeyboardButton(text="📅 Дата", callback_data=f"task:edit_date:{key}"),
-    ]])
+    return task_actions_kb(key)
+
+
+def task_more_kb(key: str, has_reminder: bool, in_calendar: bool) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(text="✏️ Название", callback_data=f"task:edit_title:{key}"),
+            InlineKeyboardButton(text="📅 Дата", callback_data=f"task:edit_date:{key}"),
+        ],
+        [
+            InlineKeyboardButton(
+                text="⏰ Удалить напоминание" if has_reminder else "⏰ Напомнить",
+                callback_data=f"task:del_reminder:{key}" if has_reminder else f"task:add_reminder:{key}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text="🗓 Убрать из календаря" if in_calendar else "🗓 В календарь",
+                callback_data=f"task:del_calendar:{key}" if in_calendar else f"task:add_calendar:{key}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(text="← Назад", callback_data=f"task:back:{key}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def confirm_done_kb(key: str) -> InlineKeyboardMarkup:
