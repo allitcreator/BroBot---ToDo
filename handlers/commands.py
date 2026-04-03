@@ -7,7 +7,7 @@ import config
 from db import storage
 from services import ms_todo, google_calendar
 from handlers.keyboards import task_actions_kb, overdue_task_kb, settings_kb
-from db.storage import register_task_id
+from db.storage import register_task_id, save_task_header
 
 router = Router()
 
@@ -49,9 +49,10 @@ async def cmd_todotoday(message: Message):
         await message.answer("📭 Задач на сегодня нет.")
         return
 
-    await message.answer(f"📋 Задачи на сегодня ({len(tasks)}):")
+    header_msg = await message.answer(f"📋 Задачи на сегодня ({len(tasks)}):")
     for task in tasks:
         key = await register_task_id(task["id"])
+        await save_task_header(key, message.chat.id, header_msg.message_id)
         await message.answer(
             f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
             reply_markup=task_actions_kb(key),
@@ -70,9 +71,10 @@ async def cmd_tomorrow(message: Message):
         await message.answer("📭 Задач на завтра нет.")
         return
 
-    await message.answer(f"📋 Задачи на завтра ({len(tasks)}):")
+    header_msg = await message.answer(f"📋 Задачи на завтра ({len(tasks)}):")
     for task in tasks:
         key = await register_task_id(task["id"])
+        await save_task_header(key, message.chat.id, header_msg.message_id)
         await message.answer(
             f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
             reply_markup=task_actions_kb(key),
@@ -91,9 +93,10 @@ async def cmd_todoall(message: Message):
         await message.answer("📭 Открытых задач нет.")
         return
 
-    await message.answer(f"📋 Все открытые задачи ({len(tasks)}):")
+    header_msg = await message.answer(f"📋 Все открытые задачи ({len(tasks)}):")
     for task in tasks:
         key = await register_task_id(task["id"])
+        await save_task_header(key, message.chat.id, header_msg.message_id)
         await message.answer(
             f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
             reply_markup=task_actions_kb(key),
@@ -112,9 +115,10 @@ async def cmd_overdue(message: Message):
         await message.answer("✅ Просроченных задач нет.")
         return
 
-    await message.answer(f"⚠️ Просроченные задачи ({len(tasks)}):")
+    header_msg = await message.answer(f"⚠️ Просроченные задачи ({len(tasks)}):")
     for task in tasks:
         key = await register_task_id(task["id"])
+        await save_task_header(key, message.chat.id, header_msg.message_id)
         await message.answer(
             f"{task['title']} — {ms_todo.format_due_date_from_task(task)}",
             reply_markup=overdue_task_kb(key),

@@ -42,6 +42,13 @@ async def init_db():
             description TEXT NOT NULL
         )
     """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS task_headers (
+            key TEXT PRIMARY KEY,
+            chat_id INTEGER NOT NULL,
+            header_message_id INTEGER NOT NULL
+        )
+    """)
     await _db.commit()
 
 
@@ -155,6 +162,39 @@ async def pop_forward(user_id: int) -> str | None:
         await _db.execute("DELETE FROM saved_forwards WHERE user_id = ?", (user_id,))
         await _db.commit()
         return row[0]
+    return None
+
+
+# --- Task list headers (for cleanup after done/delete) ---
+
+async def save_task_header(key: str, chat_id: int, header_message_id: int):
+    await _db.execute(
+        "INSERT OR REPLACE INTO task_headers (key, chat_id, header_message_id) VALUES (?, ?, ?)",
+        (key, chat_id, header_message_id),
+    )
+    await _db.commit()
+
+
+async def remove_task_header(key: str) -> tuple[int, int] | None:
+    """Удаляет запись задачи из трекинга заголовка.
+    Возвращает (chat_id, header_message_id) если это была последняя задача с этим заголовком."""
+    async with _db.execute(
+        "SELECT chat_id, header_message_id FROM task_headers WHERE key = ?", (key,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    chat_id, header_message_id = row
+    await _db.execute("DELETE FROM task_headers WHERE key = ?", (key,))
+    await _db.commit()
+    async with _db.execute(
+        "SELECT COUNT(*) FROM task_headers WHERE header_message_id = ? AND chat_id = ?",
+        (header_message_id, chat_id),
+    ) as cursor:
+        count_row = await cursor.fetchone()
+    remaining = count_row[0] if count_row else 0
+    if remaining == 0:
+        return (chat_id, header_message_id)
     return None
 
 

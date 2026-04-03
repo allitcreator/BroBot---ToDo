@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery
 import config
 from db import storage
-from db.storage import resolve_task_id, register_task_id
+from db.storage import resolve_task_id, register_task_id, remove_task_header
 from services import ms_todo, google_calendar
 from handlers.keyboards import confirm_task_kb, calendar_ask_kb, settings_kb, confirm_done_kb, confirm_delete_kb, task_actions_kb
 from handlers.utils import format_task_preview
@@ -155,6 +155,13 @@ async def cb_task_done_yes(callback: CallbackQuery):
     try:
         await ms_todo.complete_task(task_id)
         await callback.message.delete()
+        header = await remove_task_header(key)
+        if header:
+            chat_id, header_message_id = header
+            try:
+                await callback.bot.delete_message(chat_id, header_message_id)
+            except Exception:
+                pass
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
     await callback.answer("✅ Выполнено")
@@ -174,6 +181,13 @@ async def cb_task_delete_yes(callback: CallbackQuery):
     try:
         await ms_todo.delete_task(task_id)
         await callback.message.delete()
+        header = await remove_task_header(key)
+        if header:
+            chat_id, header_message_id = header
+            try:
+                await callback.bot.delete_message(chat_id, header_message_id)
+            except Exception:
+                pass
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
     await callback.answer("🗑 Удалено")
