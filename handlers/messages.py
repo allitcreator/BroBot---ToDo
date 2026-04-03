@@ -405,11 +405,23 @@ async def _handle_cal_time_and_duration(message: Message, state_data: dict):
         return
     try:
         details = await llm.parse_calendar_details(text)
-        due_time = details.get("due_time")
-        duration_minutes = details.get("duration_minutes")
+        due_time = details.get("due_time") or state_data.get("due_time")
+        duration_minutes = details.get("duration_minutes") or state_data.get("duration_minutes")
 
-        if not due_time or not duration_minutes:
-            await message.answer("❌ Не удалось распознать время или длительность. Попробуй ещё раз или /skip")
+        if not due_time and not duration_minutes:
+            await message.answer("❌ Не удалось распознать. Попробуй ещё раз или /skip")
+            return
+
+        if due_time and not duration_minutes:
+            state_data["due_time"] = due_time
+            await storage.set_state(user_id, "cal_waiting_duration", state_data)
+            await message.answer("⏱ Теперь напиши длительность (например: 1 час, 30 минут):")
+            return
+
+        if duration_minutes and not due_time:
+            state_data["duration_minutes"] = duration_minutes
+            await storage.set_state(user_id, "cal_waiting_time_duration", state_data)
+            await message.answer("🕐 Теперь напиши время начала (например: 15:00):")
             return
 
         event = await google_calendar.create_event(
@@ -624,10 +636,23 @@ async def _handle_list_cal_time_duration(message: Message, state_data: dict):
 
     try:
         details = await llm.parse_calendar_details(text)
-        due_time = details.get("due_time")
-        duration_minutes = details.get("duration_minutes")
-        if not due_time or not duration_minutes:
-            await message.answer("❌ Не удалось распознать время и длительность. Попробуй (например: 15:00, 1 час):")
+        due_time = details.get("due_time") or state_data.get("due_time")
+        duration_minutes = details.get("duration_minutes") or state_data.get("duration_minutes")
+
+        if not due_time and not duration_minutes:
+            await message.answer("❌ Не удалось распознать. Попробуй (например: 15:00, 1 час):")
+            return
+
+        if due_time and not duration_minutes:
+            state_data["due_time"] = due_time
+            await storage.set_state(user_id, "list_cal_waiting_duration", state_data)
+            await message.answer("⏱ Теперь напиши длительность (например: 1 час, 30 минут):")
+            return
+
+        if duration_minutes and not due_time:
+            state_data["duration_minutes"] = duration_minutes
+            await storage.set_state(user_id, "list_cal_waiting_time_duration", state_data)
+            await message.answer("🕐 Теперь напиши время начала (например: 15:00):")
             return
 
         event = await google_calendar.create_event(
