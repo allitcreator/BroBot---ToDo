@@ -87,10 +87,18 @@ async def transcribe_voice(audio_bytes: bytes) -> str:
     return response.choices[0].message.content.strip()
 
 
+def _normalize_decimal(text: str) -> str:
+    """Заменяет русский формат дробей: 1,5 → 1.5"""
+    import re
+    return re.sub(r'(\d),(\d)', r'\1.\2', text)
+
+
 async def parse_calendar_details(text: str, today: str | None = None) -> dict:
     """Парсит время и длительность из произвольного текста."""
     if today is None:
         today = date.today().isoformat()
+
+    text = _normalize_decimal(text)
 
     try:
         response = await client.chat.completions.create(
@@ -101,6 +109,7 @@ async def parse_calendar_details(text: str, today: str | None = None) -> dict:
                     "content": (
                         "Извлеки из текста время и длительность события. "
                         "Верни JSON: {\"due_time\": \"HH:MM\" | null, \"duration_minutes\": int | null}. "
+                        "Примеры длительности: '1.5 часа' = 90, '2 часа' = 120, '30 минут' = 30. "
                         f"Сегодня: {today}. Ответ ТОЛЬКО в виде JSON без markdown."
                     ),
                 },
