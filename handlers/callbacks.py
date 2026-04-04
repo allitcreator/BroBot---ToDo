@@ -326,12 +326,7 @@ async def cb_task_del_reminder(callback: CallbackQuery):
         await callback.answer(f"Ошибка: {e}", show_alert=True)
         return
 
-    new_text = rebuild_task_text(callback.message.text or "", has_reminder=False,
-                                  in_calendar=bool(await storage.get_calendar_link(task_id)))
-    try:
-        await callback.message.edit_text(new_text, reply_markup=task_more_kb(key, False, bool(await storage.get_calendar_link(task_id))))
-    except Exception:
-        pass
+    await _update_task_message(callback.bot, callback.message.chat.id, callback.message.message_id, key, task_id)
     await callback.answer("⏰ Напоминание удалено")
 
 
@@ -416,11 +411,7 @@ async def cb_task_del_calendar(callback: CallbackQuery):
         except Exception:
             pass
 
-    new_text = rebuild_task_text(callback.message.text or "", has_reminder=await storage.has_task_any_reminder(task_id), in_calendar=False)
-    try:
-        await callback.message.edit_text(new_text, reply_markup=task_more_kb(key, await storage.has_task_any_reminder(task_id), False))
-    except Exception:
-        pass
+    await _update_task_message(callback.bot, callback.message.chat.id, callback.message.message_id, key, task_id)
     await callback.answer("🗓 Убрано из календаря")
 
 
