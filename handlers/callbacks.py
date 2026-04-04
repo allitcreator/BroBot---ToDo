@@ -289,42 +289,27 @@ async def cb_task_add_reminder(callback: CallbackQuery):
         return
 
     due_time = task.get("dueDateTime") and _extract_due_time(task)
+    from services.ms_todo import _task_local_date
+    iso_date = _task_local_date(task) or ""
 
     if due_time:
-        due_date = ms_todo.format_due_date_from_task(task)
-        # Используем ISO дату из задачи
-        from services.ms_todo import _task_local_date
-        iso_date = _task_local_date(task) or ""
-        prompt_msg = await callback.bot.send_message(
-            callback.message.chat.id,
-            "⏰ За сколько напомнить? (например: за 15 минут, за час, точно в 15:00)",
-        )
-        await storage.set_state(user_id, "reminder_ask_offset", {
-            "task_id": task_id,
-            "task_title": task["title"],
-            "due_date": iso_date,
-            "due_time": due_time,
-            "chat_id": callback.message.chat.id,
-            "offset_q_msg_id": prompt_msg.message_id,
-            "task_message_id": callback.message.message_id,
-            "task_key": key,
-        })
+        prompt_text = "⏰ За сколько напомнить? (например: за 15 минут, за час, точно в 15:00)"
     else:
-        prompt_msg = await callback.bot.send_message(
-            callback.message.chat.id,
-            "⏰ Введи время задачи для напоминания (например: 15:00):",
-        )
-        from services.ms_todo import _task_local_date
-        iso_date = _task_local_date(task) or ""
-        await storage.set_state(user_id, "list_reminder_need_time", {
-            "task_id": task_id,
-            "task_title": task["title"],
-            "due_date": iso_date,
-            "chat_id": callback.message.chat.id,
-            "prompt_msg_id": prompt_msg.message_id,
-            "task_message_id": callback.message.message_id,
-            "task_key": key,
-        })
+        prompt_text = "⏰ Когда напомнить? (например: сегодня в 13:00, завтра в 10:00, через 2 часа)"
+
+    prompt_msg = await callback.bot.send_message(
+        callback.message.chat.id, prompt_text,
+    )
+    await storage.set_state(user_id, "reminder_ask_offset", {
+        "task_id": task_id,
+        "task_title": task["title"],
+        "due_date": iso_date,
+        "due_time": due_time,
+        "chat_id": callback.message.chat.id,
+        "offset_q_msg_id": prompt_msg.message_id,
+        "task_message_id": callback.message.message_id,
+        "task_key": key,
+    })
 
     await callback.answer()
 

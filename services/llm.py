@@ -127,7 +127,7 @@ async def parse_calendar_details(text: str, today: str | None = None) -> dict:
     return json.loads(response.choices[0].message.content)
 
 
-async def parse_reminder_offset(text: str, due_date: str, due_time: str) -> str | None:
+async def parse_reminder_offset(text: str, due_date: str, due_time: str | None = None) -> str | None:
     """Парсит текст пользователя о времени напоминания.
     Возвращает ISO datetime string в UTC (без timezone суффикса) или None."""
     user_tz = ZoneInfo(config.USER_TIMEZONE)
@@ -135,13 +135,28 @@ async def parse_reminder_offset(text: str, due_date: str, due_time: str) -> str 
     utc_offset_hours = int(now_local.utcoffset().total_seconds() // 3600)
     tz_label = f"UTC{'+' if utc_offset_hours >= 0 else ''}{utc_offset_hours}"
 
+    today_str = now_local.strftime("%Y-%m-%d")
+    now_time_str = now_local.strftime("%H:%M")
+
+    if due_time:
+        task_info = f"Задача запланирована на {due_date} в {due_time} (местное время, {tz_label})."
+        examples = (
+            f"Примеры: \"за 15 минут\" = за 15 мин до {due_time}, \"за час\" = за 60 мин до {due_time}, "
+            f"\"точно в 15:00\" = {due_date}T15:00:00."
+        )
+    else:
+        task_info = f"Задача запланирована на {due_date} (время не указано). Сейчас {today_str} {now_time_str} ({tz_label})."
+        examples = (
+            f"Примеры: \"сегодня в 13:00\" = {today_str}T13:00:00, "
+            f"\"завтра в 10:00\" = дата завтра T10:00:00, \"через 2 часа\" = текущее время + 2 часа."
+        )
+
     prompt = (
-        f"Задача запланирована на {due_date} в {due_time} (местное время пользователя, {tz_label}). "
+        f"{task_info} "
         f"Пользователь хочет напоминание: \"{text}\"\n"
-        f"Верни JSON с точным временем напоминания в том же местном времени ({tz_label}): "
+        f"Верни JSON с точным временем напоминания в местном времени ({tz_label}): "
         f"{{\"fire_at\": \"YYYY-MM-DDTHH:MM:SS\"}}. "
-        f"Примеры: \"за 15 минут\" = за 15 мин до {due_time}, \"за час\" = за 60 мин до {due_time}, "
-        f"\"точно в 15:00\" = {due_date}T15:00:00. Только JSON."
+        f"{examples} Только JSON."
     )
     try:
         response = await client.chat.completions.create(

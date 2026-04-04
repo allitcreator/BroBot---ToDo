@@ -462,7 +462,7 @@ async def _handle_reminder_offset(message: Message, state_data: dict):
 
     try:
         fire_at_utc = await llm.parse_reminder_offset(
-            text, state_data["due_date"], state_data["due_time"]
+            text, state_data["due_date"], state_data.get("due_time")
         )
         if not fire_at_utc:
             await message.answer("❌ Не удалось распознать время. Попробуй ещё раз (например: за 15 минут, за час, точно в 15:00):")
@@ -721,12 +721,7 @@ async def _handle_edit_reminder_input(message: Message, state_data: dict):
     from handlers.callbacks import _extract_due_time
     from services.ms_todo import _task_local_date
     due_date = _task_local_date(task) or ""
-    due_time = _extract_due_time(task) or ""
-
-    if not due_time:
-        await message.answer("❌ У задачи нет времени, невозможно рассчитать напоминание.")
-        await storage.clear_state(user_id)
-        return
+    due_time = _extract_due_time(task)
 
     try:
         fire_at_utc = await llm.parse_reminder_offset(text, due_date, due_time)
