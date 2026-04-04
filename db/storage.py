@@ -229,6 +229,17 @@ async def has_task_any_reminder(task_id: str) -> bool:
         return await cursor.fetchone() is not None
 
 
+async def get_reminder_by_task(task_id: str) -> dict | None:
+    """Возвращает напоминание для задачи (fire_at в UTC)."""
+    async with _db.execute(
+        "SELECT fire_at FROM reminders WHERE task_id = ? LIMIT 1", (task_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row:
+        return {"fire_at": row[0]}
+    return None
+
+
 async def delete_telegram_reminder_by_task(task_id: str):
     await _db.execute("DELETE FROM reminders WHERE task_id = ?", (task_id,))
     await _db.commit()

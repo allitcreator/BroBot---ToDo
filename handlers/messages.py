@@ -68,6 +68,14 @@ async def handle_message(message: Message):
         await _handle_cal_duration(message, state_data)
         return
 
+    if state == "edit_reminder_waiting_input":
+        await _handle_edit_reminder_input(message, state_data)
+        return
+
+    if state == "edit_calendar_waiting_input":
+        await _handle_edit_calendar_input(message, state_data)
+        return
+
     # Иначе — парсим как новую задачу
     await _handle_new_task(message)
 
@@ -690,3 +698,128 @@ async def _handle_list_cal_time_duration(message: Message, state_data: dict):
 
     await storage.clear_state(user_id)
     await message.bot.send_message(chat_id, "✅ Событие добавлено в Google Calendar")
+
+
+async def _handle_edit_reminder_input(message: Message, state_data: dict):
+    """Пользователь ввёл новое время напоминания."""
+    user_id = message.from_user.id
+    chat_id = state_data.get("chat_id")
+    prompt_msg_id = state_data.get("prompt_msg_id")
+    task_id = state_data["task_id"]
+
+    text = await _extract_text(message)
+    if not text:
+        return
+
+    try:
+        task = await ms_todo.get_task(task_id)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    from handlers.callbacks import _extract_due_time
+    from services.ms_todo import _task_local_date
+    due_date = _task_local_date(task) or ""
+    due_time = _extract_due_time(task) or ""
+
+    if not due_time:
+        await message.answer("❌ У задачи нет времени, невозможно рассчитать напоминание.")
+        await storage.clear_state(user_id)
+        return
+
+    try:
+        fire_at_utc = await llm.parse_reminder_offset(text, due_date, due_time)
+        if not fire_at_utc:
+            await message.answer("❌ Не удалось распознать время. Попробуй (например: за 15 минут, завтра в 10:00):")
+            return
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    await storage.delete_telegram_reminder_by_task(task_id)
+    try:
+        await ms_todo.remove_reminder(task_id)
+    except Exception:
+        pass
+
+    if prompt_msg_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, prompt_msg_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    where_msg = await message.bot.send_message(
+        chat_id, "Где создать напоминание?", reply_markup=reminder_where_kb(),
+    )
+    await storage.set_state(user_id, "reminder_choosing_where", {
+        "task_id": task_id,
+        "task_title": task.get("title", ""),
+        "fire_at_utc": fire_at_utc,
+        "chat_id": chat_id,
+        "where_q_msg_id": where_msg.message_id,
+        "task_message_id": state_data.get("task_message_id"),
+        "task_key": state_data.get("task_key"),
+    })
+
+
+async def _handle_edit_calendar_input(message: Message, state_data: dict):
+    """Пользователь ввёл новое время/длительность события."""
+    user_id = message.from_user.id
+    chat_id = state_data.get("chat_id")
+    prompt_msg_id = state_data.get("prompt_msg_id")
+
+    text = await _extract_text(message)
+    if not text:
+        return
+
+    try:
+        details = await llm.parse_calendar_details(text)
+        new_time = details.get("due_time") or state_data.get("current_event_time") or state_data.get("due_time")
+        new_duration = details.get("duration_minutes") or state_data.get("current_duration_minutes")
+
+        if not new_time:
+            await message.answer("❌ Не удалось распознать. Попробуй (например: 15:00, 2 часа):")
+            return
+
+        await google_calendar.delete_event(state_data["event_id"])
+        event = await google_calendar.create_event(
+            title=state_data["task_title"],
+            due_date=state_data["due_date"],
+            due_time=new_time,
+            duration_minutes=new_duration,
+        )
+        await storage.save_calendar_link(state_data["task_id"], event["id"])
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    if prompt_msg_id and chat_id:
+        try:
+            await message.bot.delete_message(chat_id, prompt_msg_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    task_message_id = state_data.get("task_message_id")
+    task_key = state_data.get("task_key")
+    if task_message_id and task_key and chat_id:
+        try:
+            from handlers.keyboards import task_actions_kb
+            await message.bot.edit_message_reply_markup(
+                chat_id=chat_id, message_id=task_message_id, reply_markup=task_actions_kb(task_key),
+            )
+        except Exception:
+            pass
+
+    await storage.clear_state(user_id)
+    await message.bot.send_message(chat_id, "✅ Событие обновлено в Google Calendar")

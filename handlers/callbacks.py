@@ -1,3 +1,5 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 import config
@@ -9,7 +11,7 @@ from handlers.keyboards import (
     confirm_done_kb, confirm_delete_kb, task_actions_kb,
     task_more_kb, reminder_where_kb, reminder_ask_kb,
 )
-from handlers.utils import ask_reminder_if_needed, format_task_preview, rebuild_task_text
+from handlers.utils import ask_reminder_if_needed, format_task_preview, rebuild_task_text, format_fire_at, format_event_info
 
 router = Router()
 
@@ -348,6 +350,29 @@ async def cb_task_del_reminder(callback: CallbackQuery):
     await callback.answer("⏰ Напоминание удалено")
 
 
+@router.callback_query(F.data.startswith("task:edit_reminder:"), user_filter)
+async def cb_edit_reminder(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+
+    reminder = await storage.get_reminder_by_task(task_id)
+    current_str = format_fire_at(reminder["fire_at"]) if reminder else "неизвестно"
+
+    prompt_msg = await callback.bot.send_message(
+        callback.message.chat.id,
+        f"⏰ Текущее напоминание: {current_str}\nВведи новое время (например: завтра в 15:00, через 2 часа):",
+    )
+    await storage.set_state(user_id, "edit_reminder_waiting_input", {
+        "task_id": task_id,
+        "task_key": key,
+        "chat_id": callback.message.chat.id,
+        "task_message_id": callback.message.message_id,
+        "prompt_msg_id": prompt_msg.message_id,
+    })
+    await callback.answer()
+
+
 # --- Календарь из Подробнее ---
 
 @router.callback_query(F.data.startswith("task:add_calendar:"), user_filter)
@@ -412,6 +437,66 @@ async def cb_task_del_calendar(callback: CallbackQuery):
     except Exception:
         pass
     await callback.answer("🗓 Убрано из календаря")
+
+
+@router.callback_query(F.data.startswith("task:edit_calendar:"), user_filter)
+async def cb_edit_calendar(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    key = callback.data.split(":", 2)[2]
+    task_id = await resolve_task_id(key) or key
+
+    event_id = await storage.get_calendar_link(task_id)
+    if not event_id:
+        await callback.answer("Событие не найдено", show_alert=True)
+        return
+
+    try:
+        event = await google_calendar.get_event(event_id)
+        current_str = format_event_info(event)
+    except Exception:
+        current_str = "неизвестно"
+        event = {}
+
+    # Вычисляем текущую длительность
+    start_str = event.get("start", {}).get("dateTime", "")
+    end_str = event.get("end", {}).get("dateTime", "")
+    current_duration = 60
+    current_event_time = None
+    if start_str and end_str:
+        from datetime import datetime
+        start_dt = datetime.fromisoformat(start_str)
+        end_dt = datetime.fromisoformat(end_str)
+        current_duration = int((end_dt - start_dt).total_seconds() / 60)
+        local_start = start_dt.astimezone(ZoneInfo(config.USER_TIMEZONE))
+        current_event_time = local_start.strftime("%H:%M")
+
+    try:
+        task = await ms_todo.get_task(task_id)
+    except Exception:
+        task = {}
+
+    from services.ms_todo import _task_local_date
+    iso_date = _task_local_date(task) or ""
+    due_time = _extract_due_time(task)
+
+    prompt_msg = await callback.bot.send_message(
+        callback.message.chat.id,
+        f"🗓 Текущее событие: {current_str}\nВведи новое время и/или длительность (например: 15:00, 2 часа):",
+    )
+    await storage.set_state(user_id, "edit_calendar_waiting_input", {
+        "task_id": task_id,
+        "task_key": key,
+        "task_title": task.get("title", ""),
+        "event_id": event_id,
+        "due_date": iso_date,
+        "due_time": due_time or current_event_time,
+        "current_event_time": current_event_time,
+        "current_duration_minutes": current_duration,
+        "chat_id": callback.message.chat.id,
+        "task_message_id": callback.message.message_id,
+        "prompt_msg_id": prompt_msg.message_id,
+    })
+    await callback.answer()
 
 
 # --- Напоминания (глобальный флоу) ---

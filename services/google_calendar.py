@@ -85,6 +85,25 @@ async def create_event(
     return resp.json()
 
 
+async def get_event(event_id: str) -> dict:
+    token = await _get_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    client = get_http_client()
+    resp = await client.get(
+        f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events/{event_id}",
+        headers=headers,
+    )
+    if resp.status_code == 401:
+        await _refresh_token()
+        headers["Authorization"] = f"Bearer {_access_token}"
+        resp = await client.get(
+            f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events/{event_id}",
+            headers=headers,
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
 async def delete_event(event_id: str):
     token = await _get_token()
     headers = {"Authorization": f"Bearer {token}"}

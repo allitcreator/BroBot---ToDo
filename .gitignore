@@ -6,3 +6,4 @@ venv/
 *.db
 .claude/
 BroBot*.json
+.DS_Store

@@ -1,3 +1,4 @@
+import asyncio
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -6,8 +7,8 @@ from zoneinfo import ZoneInfo
 import config
 from db import storage
 from services import ms_todo, google_calendar
-from handlers.keyboards import task_actions_kb, overdue_task_kb, settings_kb
-from handlers.utils import build_task_text
+from handlers.keyboards import task_actions_kb, settings_kb
+from handlers.utils import build_task_text, build_scheduled_task_text
 from db.storage import register_task_id, save_task_header
 
 router = Router()
@@ -47,8 +48,7 @@ async def cmd_start(message: Message):
         "/tomorrow — задачи на завтра\n"
         "/todoall — все открытые задачи\n"
         "/overdue — просроченные\n"
-        "/reminders — задачи с напоминаниями\n"
-        "/incalendar — задачи в Google Calendar\n"
+        "/scheduled — напоминания и календарь\n"
         "/stats — статистика\n"
         "/settings — настройки"
     )
@@ -113,8 +113,8 @@ async def cmd_overdue(message: Message):
     await _send_task_list(message, tasks, f"⚠️ Просроченные задачи ({len(tasks)}):")
 
 
-@router.message(Command("reminders"), user_filter)
-async def cmd_reminders(message: Message):
+@router.message(Command("scheduled"), user_filter)
+async def cmd_scheduled(message: Message):
     try:
         all_tasks = await ms_todo.get_all_tasks()
     except Exception as e:
@@ -122,34 +122,57 @@ async def cmd_reminders(message: Message):
         return
 
     tg_reminder_ids = await storage.get_all_telegram_reminder_task_ids()
-    tasks = [t for t in all_tasks if t.get("isReminderOn", False) or t["id"] in tg_reminder_ids]
+    cal_task_ids = set(await storage.get_all_calendar_task_ids())
+
+    tasks = [
+        t for t in all_tasks
+        if t.get("isReminderOn", False) or t["id"] in tg_reminder_ids or t["id"] in cal_task_ids
+    ]
 
     if not tasks:
-        await message.answer("📭 Задач с напоминаниями нет.")
-        return
-    await _send_task_list(message, tasks, f"⏰ Задачи с напоминаниями ({len(tasks)}):")
-
-
-@router.message(Command("incalendar"), user_filter)
-async def cmd_incalendar(message: Message):
-    cal_task_ids = await storage.get_all_calendar_task_ids()
-    if not cal_task_ids:
-        await message.answer("📭 Нет задач добавленных в Google Calendar.")
+        await message.answer("📭 Нет задач с напоминаниями или в календаре.")
         return
 
-    tasks = []
-    for tid in cal_task_ids:
+    # Параллельно получаем данные о событиях из Google Calendar
+    async def _get_event_safe(event_id):
         try:
-            task = await ms_todo.get_task(tid)
-            if task.get("status") != "completed":
-                tasks.append(task)
+            return await google_calendar.get_event(event_id)
         except Exception:
-            pass
+            return None
 
-    if not tasks:
-        await message.answer("📭 Нет задач добавленных в Google Calendar.")
-        return
-    await _send_task_list(message, tasks, f"🗓 В Google Calendar ({len(tasks)}):")
+    event_futures = {}
+    for t in tasks:
+        if t["id"] in cal_task_ids:
+            event_id = await storage.get_calendar_link(t["id"])
+            if event_id:
+                event_futures[t["id"]] = _get_event_safe(event_id)
+
+    events = {}
+    if event_futures:
+        results = await asyncio.gather(*event_futures.values())
+        for tid, result in zip(event_futures.keys(), results):
+            if result:
+                events[tid] = result
+
+    header_msg = await message.answer(f"📅 Напоминания и календарь ({len(tasks)}):")
+    for t in tasks:
+        tid = t["id"]
+        has_reminder = t.get("isReminderOn", False) or tid in tg_reminder_ids
+        in_calendar = tid in cal_task_ids
+
+        reminder_info = await storage.get_reminder_by_task(tid) if tid in tg_reminder_ids else None
+        event_info = events.get(tid)
+
+        key = await register_task_id(tid)
+        await save_task_header(key, message.chat.id, header_msg.message_id)
+
+        text = build_scheduled_task_text(
+            t["title"],
+            ms_todo.format_due_date_from_task(t),
+            has_reminder, in_calendar,
+            reminder_info, event_info,
+        )
+        await message.answer(text, reply_markup=task_actions_kb(key))
 
 
 @router.message(Command("stats"), user_filter)
