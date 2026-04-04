@@ -807,14 +807,10 @@ async def _handle_edit_calendar_input(message: Message, state_data: dict):
 
     task_message_id = state_data.get("task_message_id")
     task_key = state_data.get("task_key")
-    if task_message_id and task_key and chat_id:
-        try:
-            from handlers.keyboards import task_actions_kb
-            await message.bot.edit_message_reply_markup(
-                chat_id=chat_id, message_id=task_message_id, reply_markup=task_actions_kb(task_key),
-            )
-        except Exception:
-            pass
+    task_id = state_data.get("task_id")
+    if task_message_id and task_key and chat_id and task_id:
+        from handlers.callbacks import _update_task_message
+        await _update_task_message(message.bot, chat_id, task_message_id, task_key, task_id)
 
     await storage.clear_state(user_id)
     await message.bot.send_message(chat_id, "✅ Событие обновлено в Google Calendar")

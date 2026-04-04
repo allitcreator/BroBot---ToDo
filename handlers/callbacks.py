@@ -632,8 +632,49 @@ def _extract_due_time(task: dict) -> str | None:
         return None
 
 
+async def _update_task_message(bot, chat_id: int, message_id: int, task_key: str, task_id: str):
+    """Обновляет текст и клавиатуру сообщения задачи (маркеры + детали)."""
+    try:
+        has_reminder = await storage.has_task_any_reminder(task_id)
+        in_calendar = bool(await storage.get_calendar_link(task_id))
+
+        # Получаем текущий текст и отделяем базовую часть (название + дата)
+        # от деталей (напоминание, событие)
+        # Т.к. нельзя получить текст через API — пересобираем из данных задачи
+        task = await ms_todo.get_task(task_id)
+        title = task.get("title", "")
+        date_str = ms_todo.format_due_date_from_task(task)
+
+        reminder_info = await storage.get_reminder_by_task(task_id) if has_reminder else None
+        event_info = None
+        if in_calendar:
+            event_id = await storage.get_calendar_link(task_id)
+            if event_id:
+                try:
+                    event_info = await google_calendar.get_event(event_id)
+                except Exception:
+                    pass
+
+        from handlers.utils import build_scheduled_task_text, build_task_text
+        if reminder_info or event_info:
+            new_text = build_scheduled_task_text(
+                title, date_str, has_reminder, in_calendar, reminder_info, event_info,
+            )
+        else:
+            new_text = build_task_text(title, date_str, has_reminder, in_calendar)
+
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=new_text,
+            reply_markup=task_actions_kb(task_key),
+        )
+    except Exception:
+        pass
+
+
 async def _update_task_message_markers(callback, state_data: dict):
-    """Обновляет маркеры ⏰/🗓 на сообщении задачи после добавления напоминания/календаря."""
+    """Обновляет текст и клавиатуру сообщения задачи после изменения напоминания/календаря."""
     task_message_id = state_data.get("task_message_id")
     task_key = state_data.get("task_key")
     chat_id = state_data.get("chat_id")
@@ -642,16 +683,4 @@ async def _update_task_message_markers(callback, state_data: dict):
     if not (task_message_id and task_key and chat_id and task_id):
         return
 
-    try:
-        has_reminder = await storage.has_task_any_reminder(task_id)
-        in_calendar = bool(await storage.get_calendar_link(task_id))
-        # Получаем текущий текст сообщения задачи
-        # Не можем получить напрямую — используем rebuild без исходного текста
-        # Отправляем отдельный запрос не нужен — просто обновляем клавиатуру
-        await callback.bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=task_message_id,
-            reply_markup=task_actions_kb(task_key),
-        )
-    except Exception:
-        pass
+    await _update_task_message(callback.bot, chat_id, task_message_id, task_key, task_id)
