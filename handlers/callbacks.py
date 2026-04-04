@@ -160,6 +160,25 @@ async def cb_cal_no(callback: CallbackQuery):
 
 # --- Основные действия с задачами ---
 
+async def _cleanup_task_extras(task_id: str):
+    """Удаляет Telegram-напоминание и событие Google Calendar, связанные с задачей."""
+    try:
+        await storage.delete_telegram_reminder_by_task(task_id)
+    except Exception:
+        pass
+    try:
+        await ms_todo.remove_reminder(task_id)
+    except Exception:
+        pass
+    event_id = await storage.get_calendar_link(task_id)
+    if event_id:
+        try:
+            await google_calendar.delete_event(event_id)
+        except Exception:
+            pass
+        await storage.delete_calendar_link(task_id)
+
+
 @router.callback_query(F.data.startswith("task:done:"), user_filter)
 async def cb_task_done(callback: CallbackQuery):
     key = callback.data.split(":", 2)[2]
@@ -173,6 +192,8 @@ async def cb_task_done_yes(callback: CallbackQuery):
     task_id = await resolve_task_id(key) or key
     try:
         await ms_todo.complete_task(task_id)
+        # Удаляем напоминание и событие календаря
+        await _cleanup_task_extras(task_id)
         await callback.message.delete()
         header = await remove_task_header(key)
         if header:
@@ -198,6 +219,8 @@ async def cb_task_delete_yes(callback: CallbackQuery):
     key = callback.data.split(":", 2)[2]
     task_id = await resolve_task_id(key) or key
     try:
+        # Удаляем напоминание и событие календаря
+        await _cleanup_task_extras(task_id)
         await ms_todo.delete_task(task_id)
         await callback.message.delete()
         header = await remove_task_header(key)
