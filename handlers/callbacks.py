@@ -44,8 +44,11 @@ async def cb_confirm_create(callback: CallbackQuery):
         await callback.answer()
         return
 
-    await register_task_id(created["id"])
-    await callback.message.answer(f"✅ Задача создана: {task['title']}")
+    key = await register_task_id(created["id"])
+    await callback.message.answer(
+        f"✅ Задача создана: {task['title']}",
+        reply_markup=task_actions_kb(key),
+    )
     await callback.answer()
 
     if not task.get("is_event"):

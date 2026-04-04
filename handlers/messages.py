@@ -2,8 +2,9 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message
 import config
 from db import storage
+from db.storage import register_task_id
 from services import llm, ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb
 from handlers.utils import format_task_preview, ask_reminder_if_needed
 
 router = Router()
@@ -191,7 +192,11 @@ async def _create_task_and_ask_calendar(message: Message, task: dict):
         await message.answer(f"❌ Ошибка при создании задачи: {e}")
         return
 
-    await message.answer(f"✅ Задача создана: {task['title']}")
+    key = await register_task_id(created["id"])
+    await message.answer(
+        f"✅ Задача создана: {task['title']}",
+        reply_markup=task_actions_kb(key),
+    )
 
     # Спрашиваем про календарь только если это событие
     if not task.get("is_event"):
