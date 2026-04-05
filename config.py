@@ -1,4 +1,6 @@
 import os
+from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,3 +29,8 @@ WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
 WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "8080"))
 USE_WEBHOOK = os.getenv("USE_WEBHOOK", "false").lower() == "true"
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+
+
+def local_today() -> date:
+    """Текущая дата в часовом поясе пользователя."""
+    return datetime.now(ZoneInfo(USER_TIMEZONE)).date()

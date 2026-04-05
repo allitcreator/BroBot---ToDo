@@ -195,13 +195,13 @@ def _task_local_date(task: dict) -> str | None:
 
 
 async def get_tasks_today() -> list[dict]:
-    today = date.today().isoformat()
+    today = config.local_today().isoformat()
     tasks = await get_tasks("status ne 'completed'")
     return [t for t in tasks if _task_local_date(t) == today]
 
 
 async def get_tasks_tomorrow() -> list[dict]:
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    tomorrow = (config.local_today() + timedelta(days=1)).isoformat()
     tasks = await get_tasks("status ne 'completed'")
     return [t for t in tasks if _task_local_date(t) == tomorrow]
 
@@ -211,14 +211,14 @@ async def get_all_tasks() -> list[dict]:
 
 
 async def get_overdue_tasks() -> list[dict]:
-    today = date.today().isoformat()
+    today = config.local_today().isoformat()
     tasks = await get_tasks("status ne 'completed'")
     local_date = _task_local_date  # avoid repeated lookup
     return [t for t in tasks if (d := local_date(t)) is not None and d < today]
 
 
 async def get_stats() -> dict:
-    today = date.today().isoformat()
+    today = config.local_today().isoformat()
 
     # Два отдельных запроса чтобы не упираться в $top=100
     open_tasks_list = await get_tasks("status ne 'completed'")

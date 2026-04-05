@@ -31,7 +31,7 @@ SYSTEM_PROMPT = """Ты ассистент, который парсит текс
 
 async def parse_task(text: str, today: str | None = None) -> dict:
     if today is None:
-        today = date.today().isoformat()
+        today = config.local_today().isoformat()
 
     user_content = f"Сегодня: {today}\n\nСообщение: {text}"
 
@@ -96,7 +96,7 @@ def _normalize_decimal(text: str) -> str:
 async def parse_calendar_details(text: str, today: str | None = None) -> dict:
     """Парсит время и длительность из произвольного текста."""
     if today is None:
-        today = date.today().isoformat()
+        today = config.local_today().isoformat()
 
     text = _normalize_decimal(text)
 
