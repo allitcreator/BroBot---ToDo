@@ -35,7 +35,8 @@ async def _refresh_token() -> str:
         "client_id": config.GOOGLE_CLIENT_ID,
         "client_secret": config.GOOGLE_CLIENT_SECRET,
     })
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        raise RuntimeError(f"Google token refresh failed [{resp.status_code}]: {resp.text}")
     data = resp.json()
     _access_token = data["access_token"]
     _token_expires_at = time.time() + data.get("expires_in", 3600)
