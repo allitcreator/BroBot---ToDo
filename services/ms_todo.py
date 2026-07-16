@@ -167,6 +167,37 @@ async def update_task(task_id: str, title: str | None = None, due_date: str | No
         await _request("PATCH", _task_path(task_id), json=body)
 
 
+async def _reschedule_task(task: dict, new_date: str):
+    """Переносит задачу на new_date (YYYY-MM-DD), сохраняя время задачи."""
+    due = task.get("dueDateTime") or {}
+    dt_str = (due.get("dateTime") or "").split(".")[0]
+    try:
+        tz = ZoneInfo(due.get("timeZone", "UTC"))
+        local_dt = datetime.fromisoformat(dt_str).replace(tzinfo=tz).astimezone(ZoneInfo(config.USER_TIMEZONE))
+        body = {"dateTime": f"{new_date}T{local_dt.strftime('%H:%M:%S')}", "timeZone": config.USER_TIMEZONE}
+    except Exception:
+        body = {"dateTime": f"{new_date}T20:00:00", "timeZone": "UTC"}
+    await _request("PATCH", _task_path(task["id"]), json={"dueDateTime": body})
+
+
+async def move_today_to_tomorrow() -> list[dict]:
+    """Переносит все незавершённые задачи с сегодня на завтра."""
+    tasks = await get_tasks_today()
+    new_date = (config.local_today() + timedelta(days=1)).isoformat()
+    for t in tasks:
+        await _reschedule_task(t, new_date)
+    return tasks
+
+
+async def move_overdue_to_today() -> list[dict]:
+    """Переносит все просроченные задачи на сегодня."""
+    tasks = await get_overdue_tasks()
+    new_date = config.local_today().isoformat()
+    for t in tasks:
+        await _reschedule_task(t, new_date)
+    return tasks
+
+
 async def get_tasks(odata_filter: str | None = None) -> list[dict]:
     params = {"$top": "100"}
     if odata_filter:

@@ -48,6 +48,8 @@ async def cmd_start(message: Message):
         "/tomorrow — задачи на завтра\n"
         "/todoall — все открытые задачи\n"
         "/overdue — просроченные\n"
+        "/today2tomorrow — перенести сегодняшние на завтра\n"
+        "/overdue2today — перенести просроченные на сегодня\n"
         "/scheduled — напоминания и календарь\n"
         "/stats — статистика\n"
         "/settings — настройки"
@@ -111,6 +113,34 @@ async def cmd_overdue(message: Message):
         await message.answer("✅ Просроченных задач нет.")
         return
     await _send_task_list(message, tasks, f"⚠️ Просроченные задачи ({len(tasks)}):")
+
+
+@router.message(Command("today2tomorrow"), user_filter)
+async def cmd_today2tomorrow(message: Message):
+    try:
+        moved = await ms_todo.move_today_to_tomorrow()
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+    if not moved:
+        await message.answer("📭 Незавершённых задач на сегодня нет.")
+        return
+    lines = "\n".join(f"• {t['title']}" for t in moved)
+    await message.answer(f"➡️ Перенесено на завтра ({len(moved)}):\n{lines}")
+
+
+@router.message(Command("overdue2today"), user_filter)
+async def cmd_overdue2today(message: Message):
+    try:
+        moved = await ms_todo.move_overdue_to_today()
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+    if not moved:
+        await message.answer("✅ Просроченных задач нет.")
+        return
+    lines = "\n".join(f"• {t['title']}" for t in moved)
+    await message.answer(f"➡️ Перенесено на сегодня ({len(moved)}):\n{lines}")
 
 
 @router.message(Command("scheduled"), user_filter)
