@@ -10,6 +10,26 @@ client = AsyncOpenAI(
     api_key=config.OPENROUTER_API_KEY,
 )
 
+
+def _llm_error(e: APIStatusError, prefix: str = "Ошибка LLM") -> Exception:
+    """Формирует исключение с телом ответа OpenRouter для диагностики."""
+    if e.status_code == 402:
+        return Exception("Закончились кредиты OpenRouter. Пополни баланс на openrouter.ai")
+
+    # Пытаемся вытащить понятное сообщение из тела ответа
+    detail = ""
+    try:
+        body = e.response.json()
+        detail = body.get("error", {}).get("message") or json.dumps(body, ensure_ascii=False)
+    except Exception:
+        detail = (e.response.text or "").strip()
+
+    if e.status_code == 403:
+        hint = " (вероятно, контент заблокирован модерацией провайдера)"
+        return Exception(f"{prefix}: 403{hint}. {detail}".strip())
+
+    return Exception(f"{prefix}: {e.status_code}. {detail}".strip())
+
 SYSTEM_PROMPT = """Ты ассистент, который парсит текстовые сообщения и извлекает задачи для менеджера задач.
 
 Верни JSON объект со следующими полями:
@@ -47,9 +67,7 @@ async def parse_task(text: str, today: str | None = None) -> dict:
             max_tokens=512,
         )
     except APIStatusError as e:
-        if e.status_code == 402:
-            raise Exception("Закончились кредиты OpenRouter. Пополни баланс на openrouter.ai") from e
-        raise Exception(f"Ошибка LLM: {e.status_code}") from e
+        raise _llm_error(e) from e
 
     raw = response.choices[0].message.content
     data = json.loads(raw)
@@ -80,9 +98,7 @@ async def transcribe_voice(audio_bytes: bytes) -> str:
             max_tokens=256,
         )
     except APIStatusError as e:
-        if e.status_code == 402:
-            raise Exception("Закончились кредиты OpenRouter. Пополни баланс на openrouter.ai") from e
-        raise Exception(f"Ошибка транскрипции: {e.status_code}") from e
+        raise _llm_error(e, "Ошибка транскрипции") from e
 
     return response.choices[0].message.content.strip()
 
@@ -120,9 +136,7 @@ async def parse_calendar_details(text: str, today: str | None = None) -> dict:
             max_tokens=256,
         )
     except APIStatusError as e:
-        if e.status_code == 402:
-            raise Exception("Закончились кредиты OpenRouter. Пополни баланс на openrouter.ai") from e
-        raise Exception(f"Ошибка LLM: {e.status_code}") from e
+        raise _llm_error(e) from e
 
     return json.loads(response.choices[0].message.content)
 
@@ -167,9 +181,7 @@ async def parse_reminder_offset(text: str, due_date: str, due_time: str | None =
             max_tokens=64,
         )
     except APIStatusError as e:
-        if e.status_code == 402:
-            raise Exception("Закончились кредиты OpenRouter.") from e
-        raise Exception(f"Ошибка LLM: {e.status_code}") from e
+        raise _llm_error(e) from e
 
     data = json.loads(response.choices[0].message.content)
     fire_at_str = data.get("fire_at")
