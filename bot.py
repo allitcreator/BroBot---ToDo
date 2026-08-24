@@ -39,6 +39,7 @@ async def on_startup(bot: Bot):
         BotCommand(command="today2tomorrow", description="Перенести сегодняшние на завтра"),
         BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
         BotCommand(command="scheduled", description="Напоминания и календарь"),
+        BotCommand(command="projects", description="Проекты"),
         BotCommand(command="stats", description="Статистика"),
         BotCommand(command="settings", description="Настройки"),
     ])
@@ -101,6 +102,7 @@ async def run_polling():
         BotCommand(command="today2tomorrow", description="Перенести сегодняшние на завтра"),
         BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
         BotCommand(command="scheduled", description="Напоминания и календарь"),
+        BotCommand(command="projects", description="Проекты"),
         BotCommand(command="stats", description="Статистика"),
         BotCommand(command="settings", description="Настройки"),
     ])

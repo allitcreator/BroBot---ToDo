@@ -79,6 +79,52 @@ async def parse_task(text: str, today: str | None = None) -> dict:
     return data
 
 
+CLASSIFY_PROMPT = """Ты классифицируешь входящее сообщение пользователя в его личном боте-планировщике.
+
+Верни JSON:
+- kind: "task" | "project" | "unclear"
+- reason: почему так решил, до 8 слов
+
+Что есть что:
+- "task" — конкретное дело, напоминание или событие. Его можно записать в список дел и сделать: купить молоко, позвонить в сервис, встреча в 15:00, оплатить счёт до пятницы, посмотреть фильм.
+- "project" — замысел, который сначала надо продумать, а не сделать. Признаки: описан продукт/сервис/система, а не действие; нет срока; формулировки вида «хочу сделать», «давно думаю запустить», «а что если», «идея:», «было бы круто, если бы».
+- "unclear" — признаки смешаны или сообщение слишком короткое, чтобы решить.
+
+Правила:
+- Длина не решает: «сделать лендинг» — задача, «сделать сервис подписок для барберов» — проект.
+- Если это чужой текст (пересланный пост, цитата) без действия пользователя — "unclear".
+- Сомневаешься между task и project — ставь "unclear", пользователь уточнит одним тапом.
+- Ответ ТОЛЬКО JSON, без markdown.
+"""
+
+
+async def classify_message(text: str) -> dict:
+    """Решает, что пришло: задача, идея проекта или непонятно.
+
+    При любой ошибке возвращает "unclear" — цена ошибки один тап,
+    а падать на классификации нельзя, иначе теряется мысль.
+    """
+    try:
+        response = await client.chat.completions.create(
+            model="google/gemini-3-flash-preview",
+            messages=[
+                {"role": "system", "content": CLASSIFY_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_tokens=128,
+        )
+        data = json.loads(response.choices[0].message.content)
+    except Exception:
+        return {"kind": "unclear", "reason": "классификатор не ответил"}
+
+    kind = data.get("kind")
+    if kind not in ("task", "project", "unclear"):
+        kind = "unclear"
+    return {"kind": kind, "reason": str(data.get("reason") or "")}
+
+
 async def transcribe_voice(audio_bytes: bytes) -> str:
     """Транскрибирует аудио через Gemini мультимодальный."""
     audio_b64 = base64.b64encode(audio_bytes).decode()

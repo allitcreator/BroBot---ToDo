@@ -1,3 +1,4 @@
+import base64
 import time
 import httpx
 from datetime import date, timedelta, datetime
@@ -65,12 +66,12 @@ async def _request(method: str, path: str, params: dict | None = None, **kwargs)
     return None
 
 
-def _list_path() -> str:
-    return f"/me/todo/lists/{config.MS_TODO_LIST_ID}/tasks"
+def _list_path(list_id: str | None = None) -> str:
+    return f"/me/todo/lists/{list_id or config.MS_TODO_LIST_ID}/tasks"
 
 
-def _task_path(task_id: str) -> str:
-    return f"/me/todo/lists/{config.MS_TODO_LIST_ID}/tasks/{task_id}"
+def _task_path(task_id: str, list_id: str | None = None) -> str:
+    return f"/me/todo/lists/{list_id or config.MS_TODO_LIST_ID}/tasks/{task_id}"
 
 
 def format_due_date_from_task(task: dict) -> str:
@@ -92,51 +93,92 @@ def format_due_date_from_task(task: dict) -> str:
         return dt_str[:10]
 
 
-async def create_task(title: str, due_date: str, due_time: str | None = None, subtasks: list[str] | None = None, description: str | None = None) -> dict:
-    if due_time:
-        dt_str = f"{due_date}T{due_time}:00"
-        tz_str = config.USER_TIMEZONE
-    else:
-        dt_str = f"{due_date}T20:00:00"
-        tz_str = "UTC"
+async def create_task(title: str, due_date: str | None = None, due_time: str | None = None, subtasks: list[str] | None = None, description: str | None = None, list_id: str | None = None) -> dict:
     body = {
         "title": title[:1].upper() + title[1:] if title else title,
-        "dueDateTime": {
-            "dateTime": dt_str,
-            "timeZone": tz_str,
-        },
         "importance": "normal",
         "status": "notStarted",
     }
+    # Проекты создаются без даты — у них нет срока, это не задача дня.
+    if due_date:
+        if due_time:
+            dt_str = f"{due_date}T{due_time}:00"
+            tz_str = config.USER_TIMEZONE
+        else:
+            dt_str = f"{due_date}T20:00:00"
+            tz_str = "UTC"
+        body["dueDateTime"] = {"dateTime": dt_str, "timeZone": tz_str}
     if description:
         body["body"] = {"content": description, "contentType": "text"}
-    task = await _request("POST", _list_path(), json=body)
+    task = await _request("POST", _list_path(list_id), json=body)
 
     if subtasks:
         for item in subtasks:
-            await add_checklist_item(task["id"], item)
+            await add_checklist_item(task["id"], item, list_id)
 
     return task
 
 
-async def add_checklist_item(task_id: str, text: str):
+async def add_checklist_item(task_id: str, text: str, list_id: str | None = None):
     await _request(
         "POST",
-        f"{_task_path(task_id)}/checklistItems",
+        f"{_task_path(task_id, list_id)}/checklistItems",
         json={"displayName": text, "isChecked": False},
     )
 
 
-async def complete_task(task_id: str):
-    await _request("PATCH", _task_path(task_id), json={"status": "completed"})
+async def get_checklist_items(task_id: str, list_id: str | None = None) -> list[dict]:
+    data = await _request("GET", f"{_task_path(task_id, list_id)}/checklistItems")
+    return data.get("value", []) if data else []
 
 
-async def delete_task(task_id: str):
-    await _request("DELETE", _task_path(task_id))
+async def update_task_body(task_id: str, content: str, list_id: str | None = None):
+    """Перезаписывает заметку задачи целиком (в MS Todo заметка — plain text)."""
+    await _request("PATCH", _task_path(task_id, list_id), json={
+        "body": {"content": content, "contentType": "text"},
+    })
 
 
-async def get_task(task_id: str) -> dict:
-    return await _request("GET", _task_path(task_id))
+async def list_attachments(task_id: str, list_id: str | None = None) -> list[dict]:
+    data = await _request("GET", f"{_task_path(task_id, list_id)}/attachments")
+    return data.get("value", []) if data else []
+
+
+async def add_attachment(task_id: str, name: str, content_bytes: bytes, list_id: str | None = None) -> dict:
+    """Прикладывает файл к задаче. Годится для мелких файлов (бриф — всегда мелкий)."""
+    return await _request("POST", f"{_task_path(task_id, list_id)}/attachments", json={
+        "@odata.type": "#microsoft.graph.taskFileAttachment",
+        "name": name,
+        "contentType": "text/markdown",
+        "contentBytes": base64.b64encode(content_bytes).decode(),
+    })
+
+
+async def delete_attachment(task_id: str, attachment_id: str, list_id: str | None = None):
+    await _request("DELETE", f"{_task_path(task_id, list_id)}/attachments/{attachment_id}")
+
+
+async def replace_attachment(task_id: str, name: str, content_bytes: bytes, list_id: str | None = None) -> dict:
+    """Вложение в Graph нельзя обновить — только снести одноимённое и создать заново."""
+    try:
+        for att in await list_attachments(task_id, list_id):
+            if att.get("name") == name:
+                await delete_attachment(task_id, att["id"], list_id)
+    except Exception:
+        pass
+    return await add_attachment(task_id, name, content_bytes, list_id)
+
+
+async def complete_task(task_id: str, list_id: str | None = None):
+    await _request("PATCH", _task_path(task_id, list_id), json={"status": "completed"})
+
+
+async def delete_task(task_id: str, list_id: str | None = None):
+    await _request("DELETE", _task_path(task_id, list_id))
+
+
+async def get_task(task_id: str, list_id: str | None = None) -> dict:
+    return await _request("GET", _task_path(task_id, list_id))
 
 
 async def remove_reminder(task_id: str):
@@ -154,7 +196,7 @@ async def set_reminder(task_id: str, fire_at_utc: str):
     })
 
 
-async def update_task(task_id: str, title: str | None = None, due_date: str | None = None):
+async def update_task(task_id: str, title: str | None = None, due_date: str | None = None, list_id: str | None = None):
     body = {}
     if title:
         body["title"] = title
@@ -164,7 +206,7 @@ async def update_task(task_id: str, title: str | None = None, due_date: str | No
             "timeZone": "UTC",
         }
     if body:
-        await _request("PATCH", _task_path(task_id), json=body)
+        await _request("PATCH", _task_path(task_id, list_id), json=body)
 
 
 async def _reschedule_task(task: dict, new_date: str):
@@ -198,11 +240,11 @@ async def move_overdue_to_today() -> list[dict]:
     return tasks
 
 
-async def get_tasks(odata_filter: str | None = None) -> list[dict]:
+async def get_tasks(odata_filter: str | None = None, list_id: str | None = None) -> list[dict]:
     params = {"$top": "100"}
     if odata_filter:
         params["$filter"] = odata_filter
-    data = await _request("GET", _list_path(), params=params)
+    data = await _request("GET", _list_path(list_id), params=params)
     return data.get("value", [])
 
 
@@ -237,8 +279,8 @@ async def get_tasks_tomorrow() -> list[dict]:
     return [t for t in tasks if _task_local_date(t) == tomorrow]
 
 
-async def get_all_tasks() -> list[dict]:
-    return await get_tasks("status ne 'completed'")
+async def get_all_tasks(list_id: str | None = None) -> list[dict]:
+    return await get_tasks("status ne 'completed'", list_id)
 
 
 async def get_overdue_tasks() -> list[dict]:

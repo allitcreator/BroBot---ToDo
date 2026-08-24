@@ -14,6 +14,7 @@ MS_CLIENT_ID = os.getenv("MS_CLIENT_ID")
 MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET")
 MS_REFRESH_TOKEN = os.getenv("MS_REFRESH_TOKEN")
 MS_TODO_LIST_ID = os.getenv("MS_TODO_LIST_ID")
+MS_PROJECTS_LIST_ID = os.getenv("MS_PROJECTS_LIST_ID")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -22,6 +23,9 @@ GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "primary")
 
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 USER_TIMEZONE = os.getenv("USER_TIMEZONE", "Europe/Moscow")
+
+# Потолок вопросов в интервью по проекту
+INTERVIEW_MAX_QUESTIONS = int(os.getenv("INTERVIEW_MAX_QUESTIONS", "20"))
 
 WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")

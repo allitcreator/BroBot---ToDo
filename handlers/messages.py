@@ -4,8 +4,9 @@ import config
 from db import storage
 from db.storage import register_task_id
 from services import llm, ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb, unclear_kb
 from handlers.utils import format_task_preview, ask_reminder_if_needed
+from handlers import project_flow
 
 router = Router()
 
@@ -32,6 +33,14 @@ async def handle_message(message: Message):
 
     # Проверяем текущее состояние
     state, state_data = await storage.get_state(user_id)
+
+    if state == project_flow.STATE_SESSION:
+        await _handle_interview_answer(message, state_data)
+        return
+
+    if state == project_flow.STATE_FILL:
+        await _handle_project_fill(message, state_data)
+        return
 
     if state == "editing_pending_title":
         await _handle_edit_pending_title(message, state_data)
@@ -150,11 +159,28 @@ async def _handle_new_task(message: Message):
 
     await message.bot.send_chat_action(message.chat.id, "typing")
 
+    # Триаж: напоминание или идея проекта. Ошибка классификатора стоит один тап.
+    kind = (await llm.classify_message(text))["kind"]
+
+    if kind == "project":
+        await project_flow.start_interview(message.bot, message.chat.id, user_id, text)
+        return
+
+    if kind == "unclear":
+        await storage.set_state(user_id, project_flow.STATE_UNCLEAR, {"seed_text": text})
+        await message.answer(
+            f"🤔 Не понял, задача это или проект:\n\n{text[:500]}",
+            reply_markup=unclear_kb(),
+        )
+        return
+
     try:
         task = await llm.parse_task(text)
     except Exception as e:
         await message.answer(f"❌ Ошибка при разборе задачи: {e}")
         return
+
+    task["source_text"] = text
 
     # Подхватываем сохранённый форвард (мог прийти до или во время LLM вызова)
     saved_fwd = await storage.pop_forward(user_id)
@@ -276,6 +302,47 @@ async def _handle_forward_comment(message: Message, state_data: dict):
         )
     else:
         await _create_task_and_ask_calendar(message, task)
+
+
+async def _handle_interview_answer(message: Message, state_data: dict):
+    """Ответ пользователя на вопрос интервью. Голос идёт сразу в диалог, без превью."""
+    try:
+        text = await _extract_text(message)
+    except Exception as e:
+        await message.answer(f"❌ Не удалось распознать голосовое: {e}")
+        return
+    if not text:
+        return
+    await project_flow.handle_answer(message, state_data or {}, text)
+
+
+async def _handle_project_fill(message: Message, state_data: dict):
+    """Пользователь прислал текст, которым дополняется секция брифа."""
+    from services import projects
+
+    user_id = message.from_user.id
+    task_id = state_data.get("task_id")
+    field = state_data.get("field")
+
+    try:
+        text = await _extract_text(message)
+    except Exception as e:
+        await message.answer(f"❌ Не удалось распознать голосовое: {e}")
+        return
+    if not text:
+        return
+
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    try:
+        await projects.append_to_section(task_id, field, text)
+    except Exception as e:
+        await message.answer(f"❌ Не удалось дополнить бриф: {e}")
+        await storage.clear_state(user_id)
+        return
+
+    await storage.clear_state(user_id)
+    title = dict(projects.SECTIONS).get(field, field)
+    await message.answer(f"✅ Секция «{title}» дополнена")
 
 
 async def _handle_edit_pending_title(message: Message, state_data: dict):

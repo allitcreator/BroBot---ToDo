@@ -73,6 +73,13 @@ async def init_db():
     except Exception:
         pass  # column already exists
 
+    # Migrate: разведка через Perplexity, включена по умолчанию
+    try:
+        await _db.execute("ALTER TABLE settings ADD COLUMN research_enabled INTEGER NOT NULL DEFAULT 1")
+        await _db.commit()
+    except Exception:
+        pass  # column already exists
+
 
 async def close_db():
     if _db:
@@ -87,6 +94,24 @@ async def get_confirm_mode(user_id: int) -> str:
     ) as cursor:
         row = await cursor.fetchone()
     return row[0] if row else "all"
+
+
+async def get_research_enabled(user_id: int) -> bool:
+    """Разрешён ли поиск в интернете через Perplexity. По умолчанию да."""
+    async with _db.execute(
+        "SELECT research_enabled FROM settings WHERE user_id = ?", (user_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    return bool(row[0]) if row and row[0] is not None else True
+
+
+async def set_research_enabled(user_id: int, enabled: bool):
+    await _db.execute(
+        "INSERT INTO settings (user_id, research_enabled) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET research_enabled = excluded.research_enabled",
+        (user_id, int(enabled)),
+    )
+    await _db.commit()
 
 
 async def set_confirm_mode(user_id: int, mode: str):

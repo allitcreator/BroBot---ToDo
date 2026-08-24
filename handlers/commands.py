@@ -51,8 +51,10 @@ async def cmd_start(message: Message):
         "/today2tomorrow — перенести сегодняшние на завтра\n"
         "/overdue2today — перенести просроченные на сегодня\n"
         "/scheduled — напоминания и календарь\n"
+        "/projects — проекты\n"
         "/stats — статистика\n"
-        "/settings — настройки"
+        "/settings — настройки\n\n"
+        "Если напишешь не дело, а идею — разберу её вопросами и заведу проектом."
     )
 
 
@@ -205,6 +207,28 @@ async def cmd_scheduled(message: Message):
         await message.answer(text, reply_markup=task_actions_kb(key))
 
 
+@router.message(Command("projects"), user_filter)
+async def cmd_projects(message: Message):
+    from services import projects
+    from handlers.keyboards import project_actions_kb
+
+    try:
+        tasks = await projects.list_projects()
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        return
+
+    if not tasks:
+        await message.answer("📭 Проектов пока нет. Напиши идею — разберём её вопросами.")
+        return
+
+    research_enabled = await storage.get_research_enabled(message.from_user.id)
+    await message.answer(f"🚀 Проекты ({len(tasks)}):")
+    for task in tasks:
+        key = await register_task_id(task["id"])
+        await message.answer(task["title"], reply_markup=project_actions_kb(key, research_enabled))
+
+
 @router.message(Command("stats"), user_filter)
 async def cmd_stats(message: Message):
     try:
@@ -224,12 +248,12 @@ async def cmd_stats(message: Message):
 
 @router.message(Command("settings"), user_filter)
 async def cmd_settings(message: Message):
+    from handlers.callbacks import settings_text
+
     user_id = message.from_user.id
     confirm_mode = await storage.get_confirm_mode(user_id)
-    mode_labels = {"all": "Все задачи", "uncertain": "Только неуверенные", "off": "Отключено"}
+    research_enabled = await storage.get_research_enabled(user_id)
     await message.answer(
-        f"⚙️ Настройки\n\n"
-        f"Режим подтверждения: {mode_labels.get(confirm_mode, confirm_mode)}\n\n"
-        f"Выбери режим:",
-        reply_markup=settings_kb(confirm_mode),
+        settings_text(confirm_mode, research_enabled),
+        reply_markup=settings_kb(confirm_mode, research_enabled),
     )
