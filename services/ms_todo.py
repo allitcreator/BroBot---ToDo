@@ -182,7 +182,12 @@ async def get_task(task_id: str, list_id: str | None = None) -> dict:
 
 
 async def remove_reminder(task_id: str):
-    await _request("PATCH", _task_path(task_id), json={"isReminderOn": False})
+    # Одного isReminderOn=false мало: Graph его молча игнорирует и напоминание
+    # остаётся. Снимается только вместе со сбросом самой даты.
+    await _request("PATCH", _task_path(task_id), json={
+        "isReminderOn": False,
+        "reminderDateTime": None,
+    })
 
 
 async def set_reminder(task_id: str, fire_at_utc: str):
