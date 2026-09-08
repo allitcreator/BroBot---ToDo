@@ -27,6 +27,18 @@ async def _extract_text(message: Message) -> str | None:
     return message.text or message.caption or ""
 
 
+async def classify_kind(user_id: int, text: str) -> str:
+    """Задача, замысел проекта или непонятно.
+
+    С выключенным разбором идей классификатор не зовём вообще: вызов LLM ради
+    ветки, в которую всё равно не пойдём, — потраченные деньги и лишняя
+    секунда ожидания.
+    """
+    if not await storage.get_projects_enabled(user_id):
+        return "task"
+    return (await llm.classify_message(text))["kind"]
+
+
 @router.message(F.from_user.func(lambda u: u.id == config.TELEGRAM_USER_ID))
 async def handle_message(message: Message):
     user_id = message.from_user.id
@@ -134,7 +146,7 @@ async def _handle_new_task(message: Message):
             preview = format_task_preview(pending)
             await message.answer(
                 f"📋 Создать задачу?\n\n{preview}",
-                reply_markup=confirm_task_kb(),
+                reply_markup=confirm_task_kb(await storage.get_projects_enabled(user_id)),
             )
             return
 
@@ -160,7 +172,7 @@ async def _handle_new_task(message: Message):
     await message.bot.send_chat_action(message.chat.id, "typing")
 
     # Триаж: напоминание или идея проекта. Ошибка классификатора стоит один тап.
-    kind = (await llm.classify_message(text))["kind"]
+    kind = await classify_kind(user_id, text)
 
     if kind == "project":
         await project_flow.start_interview(message.bot, message.chat.id, user_id, text)
@@ -198,7 +210,7 @@ async def _handle_new_task(message: Message):
         preview = format_task_preview(task)
         await message.answer(
             f"📋 Создать задачу?\n\n{preview}",
-            reply_markup=confirm_task_kb(),
+            reply_markup=confirm_task_kb(await storage.get_projects_enabled(user_id)),
         )
     else:
         await _create_task_and_ask_calendar(message, task)
@@ -298,7 +310,7 @@ async def _handle_forward_comment(message: Message, state_data: dict):
         preview = format_task_preview(task)
         await message.answer(
             f"📋 Создать задачу?\n\n{preview}",
-            reply_markup=confirm_task_kb(),
+            reply_markup=confirm_task_kb(await storage.get_projects_enabled(user_id)),
         )
     else:
         await _create_task_and_ask_calendar(message, task)
@@ -362,7 +374,7 @@ async def _handle_edit_pending_title(message: Message, state_data: dict):
     preview = format_task_preview(task)
     await message.answer(
         f"📋 Создать задачу?\n\n{preview}",
-        reply_markup=confirm_task_kb(),
+        reply_markup=confirm_task_kb(await storage.get_projects_enabled(user_id)),
     )
 
 

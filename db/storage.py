@@ -80,6 +80,13 @@ async def init_db():
     except Exception:
         pass  # column already exists
 
+    # Migrate: разбор идей в проекты, включён по умолчанию
+    try:
+        await _db.execute("ALTER TABLE settings ADD COLUMN projects_enabled INTEGER NOT NULL DEFAULT 1")
+        await _db.commit()
+    except Exception:
+        pass  # column already exists
+
 
 async def close_db():
     if _db:
@@ -109,6 +116,24 @@ async def set_research_enabled(user_id: int, enabled: bool):
     await _db.execute(
         "INSERT INTO settings (user_id, research_enabled) VALUES (?, ?) "
         "ON CONFLICT(user_id) DO UPDATE SET research_enabled = excluded.research_enabled",
+        (user_id, int(enabled)),
+    )
+    await _db.commit()
+
+
+async def get_projects_enabled(user_id: int) -> bool:
+    """Разбирает ли бот идеи в проекты через интервью. По умолчанию да."""
+    async with _db.execute(
+        "SELECT projects_enabled FROM settings WHERE user_id = ?", (user_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    return bool(row[0]) if row and row[0] is not None else True
+
+
+async def set_projects_enabled(user_id: int, enabled: bool):
+    await _db.execute(
+        "INSERT INTO settings (user_id, projects_enabled) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET projects_enabled = excluded.projects_enabled",
         (user_id, int(enabled)),
     )
     await _db.commit()

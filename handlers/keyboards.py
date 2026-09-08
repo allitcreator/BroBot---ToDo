@@ -1,17 +1,17 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def confirm_task_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Создать", callback_data="confirm:create"),
-            InlineKeyboardButton(text="✏️ Изменить", callback_data="confirm:edit"),
-            InlineKeyboardButton(text="❌ Отмена", callback_data="confirm:cancel"),
-        ],
-        [
+def confirm_task_kb(projects_enabled: bool = True) -> InlineKeyboardMarkup:
+    rows = [[
+        InlineKeyboardButton(text="✅ Создать", callback_data="confirm:create"),
+        InlineKeyboardButton(text="✏️ Изменить", callback_data="confirm:edit"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="confirm:cancel"),
+    ]]
+    if projects_enabled:
+        rows.append([
             InlineKeyboardButton(text="🚀 Это проект", callback_data="confirm:project"),
-        ],
-    ])
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def unclear_kb() -> InlineKeyboardMarkup:
@@ -159,7 +159,11 @@ def reminder_where_kb() -> InlineKeyboardMarkup:
     ]])
 
 
-def settings_kb(confirm_mode: str, research_enabled: bool = True) -> InlineKeyboardMarkup:
+def settings_kb(
+    confirm_mode: str,
+    research_enabled: bool = True,
+    projects_enabled: bool = True,
+) -> InlineKeyboardMarkup:
     modes = [
         ("all", "Все задачи"),
         ("uncertain", "Только неуверенные"),
@@ -176,4 +180,8 @@ def settings_kb(confirm_mode: str, research_enabled: bool = True) -> InlineKeybo
         text=("✓ Разведка в интернете" if research_enabled else "Разведка выключена"),
         callback_data=f"settings:research:{'off' if research_enabled else 'on'}",
     )]
-    return InlineKeyboardMarkup(inline_keyboard=[buttons, research_row])
+    projects_row = [InlineKeyboardButton(
+        text=("✓ Разбор идей в проекты" if projects_enabled else "Проекты выключены"),
+        callback_data=f"settings:projects:{'off' if projects_enabled else 'on'}",
+    )]
+    return InlineKeyboardMarkup(inline_keyboard=[buttons, research_row, projects_row])

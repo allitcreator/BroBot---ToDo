@@ -120,6 +120,13 @@ async def cb_confirm_project(callback: CallbackQuery):
     задачу между списками MS Graph не умеет.
     """
     user_id = callback.from_user.id
+
+    # Кнопка живёт в истории чата и после выключения фичи, поэтому проверяем
+    # тумблер здесь, а не только при отрисовке карточки.
+    if not await storage.get_projects_enabled(user_id):
+        await callback.answer("Разбор идей выключен — включить в /settings", show_alert=True)
+        return
+
     task = await storage.get_pending_task(user_id)
     seed_text = ""
     if task:
@@ -187,7 +194,7 @@ async def cb_unclear_choice(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer(
         f"📋 Создать задачу?\n\n{format_task_preview(task)}",
-        reply_markup=confirm_task_kb(),
+        reply_markup=confirm_task_kb(await storage.get_projects_enabled(user_id)),
     )
 
 
@@ -262,7 +269,7 @@ async def cb_interview_to_task(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer(
         f"📋 Создать задачу?\n\n{format_task_preview(task)}",
-        reply_markup=confirm_task_kb(),
+        reply_markup=confirm_task_kb(await storage.get_projects_enabled(user_id)),
     )
 
 
@@ -935,43 +942,66 @@ async def cb_reminder_todo(callback: CallbackQuery):
 MODE_LABELS = {"all": "Все задачи", "uncertain": "Только неуверенные", "off": "Отключено"}
 
 
-def settings_text(confirm_mode: str, research_enabled: bool) -> str:
+def settings_text(confirm_mode: str, research_enabled: bool, projects_enabled: bool = True) -> str:
     return (
         f"⚙️ Настройки\n\n"
         f"Режим подтверждения: {MODE_LABELS.get(confirm_mode, confirm_mode)}\n"
-        f"Разведка в интернете (Perplexity): {'включена' if research_enabled else 'выключена'}\n\n"
+        f"Разведка в интернете (Perplexity): {'включена' if research_enabled else 'выключена'}\n"
+        f"Разбор идей в проекты: {'включён' if projects_enabled else 'выключен'}\n\n"
         f"Разведка ищет готовые решения и технические ограничения по проекту, "
         f"примерно полцента за запуск.\n\n"
+        f"С выключенным разбором идей каждое сообщение уходит в задачи напрямую: "
+        f"ни триажа, ни интервью, ни /projects.\n\n"
         f"Что меняем?"
+    )
+
+
+async def _redraw_settings(callback: CallbackQuery, **changed):
+    """Перерисовать экран настроек, дочитав то, что не менялось.
+
+    Настроек стало три, и держать в каждом обработчике полный набор чтений —
+    прямой путь к экрану, где соседний тумблер нарисован по умолчанию, а не по
+    факту.
+    """
+    user_id = callback.from_user.id
+    state = {
+        "confirm_mode": changed.get("confirm_mode") or await storage.get_confirm_mode(user_id),
+        "research_enabled": changed["research_enabled"] if "research_enabled" in changed
+        else await storage.get_research_enabled(user_id),
+        "projects_enabled": changed["projects_enabled"] if "projects_enabled" in changed
+        else await storage.get_projects_enabled(user_id),
+    }
+    await callback.message.edit_text(
+        settings_text(**state),
+        reply_markup=settings_kb(**state),
     )
 
 
 @router.callback_query(F.data.startswith("settings:confirm_mode:"), user_filter)
 async def cb_settings_confirm_mode(callback: CallbackQuery):
-    user_id = callback.from_user.id
     mode = callback.data.split(":", 2)[2]
-    await storage.set_confirm_mode(user_id, mode)
-    research_enabled = await storage.get_research_enabled(user_id)
+    await storage.set_confirm_mode(callback.from_user.id, mode)
 
-    await callback.message.edit_text(
-        settings_text(mode, research_enabled),
-        reply_markup=settings_kb(mode, research_enabled),
-    )
+    await _redraw_settings(callback, confirm_mode=mode)
     await callback.answer(f"Сохранено: {MODE_LABELS.get(mode, mode)}")
 
 
 @router.callback_query(F.data.startswith("settings:research:"), user_filter)
 async def cb_settings_research(callback: CallbackQuery):
-    user_id = callback.from_user.id
     enabled = callback.data.split(":", 2)[2] == "on"
-    await storage.set_research_enabled(user_id, enabled)
-    confirm_mode = await storage.get_confirm_mode(user_id)
+    await storage.set_research_enabled(callback.from_user.id, enabled)
 
-    await callback.message.edit_text(
-        settings_text(confirm_mode, enabled),
-        reply_markup=settings_kb(confirm_mode, enabled),
-    )
+    await _redraw_settings(callback, research_enabled=enabled)
     await callback.answer("Разведка включена" if enabled else "Разведка выключена")
+
+
+@router.callback_query(F.data.startswith("settings:projects:"), user_filter)
+async def cb_settings_projects(callback: CallbackQuery):
+    enabled = callback.data.split(":", 2)[2] == "on"
+    await storage.set_projects_enabled(callback.from_user.id, enabled)
+
+    await _redraw_settings(callback, projects_enabled=enabled)
+    await callback.answer("Разбор идей включён" if enabled else "Разбор идей выключен")
 
 
 # --- Вспомогательные функции ---

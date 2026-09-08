@@ -212,6 +212,10 @@ async def cmd_projects(message: Message):
     from services import projects
     from handlers.keyboards import project_actions_kb
 
+    if not await storage.get_projects_enabled(message.from_user.id):
+        await message.answer("🚫 Разбор идей в проекты выключен. Включить — в /settings.")
+        return
+
     try:
         tasks = await projects.list_projects()
     except Exception as e:
@@ -253,7 +257,8 @@ async def cmd_settings(message: Message):
     user_id = message.from_user.id
     confirm_mode = await storage.get_confirm_mode(user_id)
     research_enabled = await storage.get_research_enabled(user_id)
+    projects_enabled = await storage.get_projects_enabled(user_id)
     await message.answer(
-        settings_text(confirm_mode, research_enabled),
-        reply_markup=settings_kb(confirm_mode, research_enabled),
+        settings_text(confirm_mode, research_enabled, projects_enabled),
+        reply_markup=settings_kb(confirm_mode, research_enabled, projects_enabled),
     )
