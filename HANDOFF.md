@@ -1,7 +1,7 @@
 # HANDOFF
 
 Статус: открыт
-Обновлено: 2026-10-26 16:40 MSK
+Обновлено: 2026-10-26 16:35 MSK
 Клиент: Claude
 
 ## Цель
@@ -19,7 +19,7 @@
   нужны; разбор входящих только в мини-аппе; нет даты → входящие, дата
   пишется комментарием к форварду; ненужное удаляется; поддомен
   `todo.alxforbot.online`, A-запись заведена в reg.ru.
-- Этап A, коммит `4895e38` (локально, **не запушен, не задеплоен**):
+- Этап A, коммит `4895e38`, **задеплоен в прод 2026-10-26**:
   - замок на рефреш токенов MS и Google, `_force_refresh` после 401;
   - `AuthExpiredError` с подсказкой `get_tokens.py`; ротированный
     refresh-токен MS держится в памяти (`_current_refresh_token`);
@@ -33,13 +33,27 @@
 
 ## Текущее состояние
 
-Прод на vps4 — по-прежнему `5de9f93`, образ от 2026-09-08. В нём лежат
-`.env`, `.env.bak-20260824` и копии `bot.db` (находка аудита) — уйдут после
-пересборки с `.dockerignore`.
+Прод на vps4 — `96e6f6e`, образ пересобран 2026-10-26 13:26 UTC.
 
-На VPS `docker-compose.yml` правлен руками (`127.0.0.1:8081`) — `git pull`
-на него упрётся. Перед pull: `git checkout docker-compose.yml`, содержимое в
-новом коммите то же плюс ротация логов.
+- В `/app` образа больше нет `.env`, копий `bot.db` и `.git`. Старый образ
+  с секретами удалён (`docker image rm 47cd54ca…`).
+- Логи: `max-size 10m, max-file 3`. Порт `127.0.0.1:8081`.
+- Подделанный POST без секрета — 401. Вебхук установлен.
+- Смоук в контейнере: три параллельных чтения Graph прошли (6 на сегодня,
+  0 просроченных, 16 открытых), токен Google получен, классификатор
+  ответил `task`.
+- Бэкап: `backups/bot-20261026-1329.db.gz` (32 КБ), cron `30 4 * * *`,
+  лог `/var/log/todobot-backup.log`. Копия перед деплоем —
+  `data/bot.db.bak-20261026`. Все `.bak` теперь 600.
+- Версии после сборки: aiogram 3.31.0, aiohttp 3.14.5, httpx 0.28.1,
+  openai 3.37.0 (было 3.8.0 — версии не закреплены, находка аудита).
+
+Наблюдения:
+- Холодный старт ~2 мин при нагрузке: импорт модулей на одном ядре под
+  load average 6 занял ~48 с (openai — ~9 с). В это время вебхук не
+  отвечает, Telegram доставит апдейты позже.
+- Диск 48% → 61%: параллельно пересобирался foodbot (образ 678 МБ, build
+  cache 2.5 ГБ, из них 592 МБ можно освободить). Это не todobot, не чистил.
 
 A-запись `todo.alxforbot.online`: в 16:00 MSK авторитетный `ns1.reg.ru` её ещё
 не отдавал. Проверить: `dig +short todo.alxforbot.online @ns1.reg.ru`.
@@ -76,32 +90,20 @@ A-запись `todo.alxforbot.online`: в 16:00 MSK авторитетный `n
 
 ## Блокеры и риски
 
-- Деплой этапа A ждёт подтверждения Александра.
+- Живой прогон в Telegram после деплоя этапа A не сделан.
 - vps4 совмещён с LV-выходом VPN: правки nginx только через `nginx -t`.
 
 ## Следующий точный шаг
 
-Деплой этапа A на vps4:
-
-```
-git push origin main
-ssh vps4
-cd /root/todobot
-cp data/bot.db data/bot.db.bak-20261026
-git checkout docker-compose.yml && rm docker-compose.yml.bak-20261023
-git pull
-docker compose up -d --build
-docker logs --tail 20 todobot-todobot-1
-docker exec todobot-todobot-1 ls -a /app      # .env и data-копий быть не должно
-docker image prune -f                          # старый образ с секретами
-deploy/backup-db.sh                            # первый снимок руками
-(crontab -l; echo '30 4 * * * /root/todobot/deploy/backup-db.sh >> /var/log/todobot-backup.log 2>&1') | crontab -
-```
-
-Потом: живой тест в Telegram (обычная задача), затем Этап B.
+1. Живой тест в Telegram: обычная задача, `/todotoday`, `/stats`.
+2. Утром 2026-10-27 проверить, что cron снял снимок:
+   `ssh vps4 'tail -3 /var/log/todobot-backup.log'`.
+3. Этап B из `MINIAPP-PLAN.md`: сначала бот (нет даты → входящие, форвард без
+   комментария → входящие), затем скелет мини-аппа и экран «Входящие».
 
 ## Rollback
 
 Код: `git revert 4895e38 && git push origin main`, на vps4
-`git pull && docker compose up -d --build`. Схема БД не менялась.
+`git pull && docker compose up -d --build`. Схема БД не менялась; копия
+перед деплоем — `data/bot.db.bak-20261026`.
 Cron бэкапа: удалить строку `todobot/deploy/backup-db.sh` из `crontab -e`.
