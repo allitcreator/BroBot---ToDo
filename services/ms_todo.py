@@ -92,7 +92,24 @@ async def _force_refresh(stale_token: str) -> str:
     return _access_token
 
 
+# Кэш срезов задач. Graph отвечает на срез 1–3 с (замер 2026-10-26), а
+# мини-апп и команды чата дёргают одни и те же срезы. Любая запись через
+# бота сбрасывает кэш целиком; правки из приложения To Do видны не позже TTL.
+CACHE_TTL = 60.0
+_tasks_cache: dict[tuple, tuple[float, list[dict]]] = {}
+
+
+def invalidate_cache():
+    _tasks_cache.clear()
+
+
 async def _request(method: str, path: str, params: dict | None = None, **kwargs):
+    if method != "GET":
+        invalidate_cache()
+    return await _send(method, path, params=params, **kwargs)
+
+
+async def _send(method: str, path: str, params: dict | None = None, **kwargs):
     token = await _get_token()
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     client = get_http_client()
@@ -290,8 +307,14 @@ async def get_tasks(odata_filter: str | None = None, list_id: str | None = None)
     params = {"$top": "100"}
     if odata_filter:
         params["$filter"] = odata_filter
+    cache_key = (odata_filter, list_id)
+    cached = _tasks_cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < CACHE_TTL:
+        return list(cached[1])
     data = await _request("GET", _list_path(list_id), params=params)
-    return data.get("value", [])
+    tasks = data.get("value", [])
+    _tasks_cache[cache_key] = (time.monotonic(), tasks)
+    return list(tasks)
 
 
 def _task_local_date(task: dict) -> str | None:

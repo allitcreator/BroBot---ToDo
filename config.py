@@ -34,6 +34,10 @@ WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "8080"))
 USE_WEBHOOK = os.getenv("USE_WEBHOOK", "false").lower() == "true"
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
+# Адрес мини-аппа (https://todo.alxforbot.online/). Пусто — кнопки меню и
+# /app нет, API всё равно поднимается вместе с вебхуком.
+MINIAPP_URL = os.getenv("MINIAPP_URL", "")
+
 
 def local_today() -> date:
     """Текущая дата в часовом поясе пользователя."""

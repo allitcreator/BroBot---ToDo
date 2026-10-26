@@ -4,10 +4,11 @@ import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 import config
+from api import routes as api_routes
 from db import storage
 from handlers import messages, commands, callbacks
 
@@ -41,9 +42,15 @@ async def on_startup(bot: Bot):
         BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
         BotCommand(command="scheduled", description="Напоминания и календарь"),
         BotCommand(command="projects", description="Проекты"),
+        BotCommand(command="app", description="Мини-апп: входящие"),
         BotCommand(command="stats", description="Статистика"),
         BotCommand(command="settings", description="Настройки"),
     ])
+    if config.MINIAPP_URL:
+        await bot.set_chat_menu_button(
+            chat_id=config.TELEGRAM_USER_ID,
+            menu_button=MenuButtonWebApp(text="Входящие", web_app=WebAppInfo(url=config.MINIAPP_URL)),
+        )
     webhook_url = f"{config.WEBHOOK_HOST}{config.WEBHOOK_PATH}"
     await bot.set_webhook(webhook_url, secret_token=config.WEBHOOK_SECRET or None)
     logging.info(f"Webhook set: {webhook_url}")
@@ -76,6 +83,9 @@ def run_webhook():
         dispatcher=dp, bot=bot, secret_token=config.WEBHOOK_SECRET or None,
     )
     handler.register(app, path="/")
+    # API мини-аппа — в том же приложении: второй процесс на одном ядре
+    # vps4 не нужен. Наружу его отдаёт nginx поддомена мини-аппа.
+    api_routes.setup(app)
     setup_application(app, dp, bot=bot)
 
     logging.info(f"Starting webhook on {config.WEBAPP_HOST}:{config.WEBAPP_PORT}")
@@ -104,6 +114,7 @@ async def run_polling():
         BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
         BotCommand(command="scheduled", description="Напоминания и календарь"),
         BotCommand(command="projects", description="Проекты"),
+        BotCommand(command="app", description="Мини-апп: входящие"),
         BotCommand(command="stats", description="Статистика"),
         BotCommand(command="settings", description="Настройки"),
     ])

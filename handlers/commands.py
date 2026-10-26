@@ -1,7 +1,7 @@
 import asyncio
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import config
@@ -52,9 +52,23 @@ async def cmd_start(message: Message):
         "/overdue2today — перенести просроченные на сегодня\n"
         "/scheduled — напоминания и календарь\n"
         "/projects — проекты\n"
+        "/app — мини-апп: разбор входящих\n"
         "/stats — статистика\n"
         "/settings — настройки\n\n"
         "Если напишешь не дело, а идею — разберу её вопросами и заведу проектом."
+    )
+
+
+@router.message(Command("app"), user_filter)
+async def cmd_app(message: Message):
+    if not config.MINIAPP_URL:
+        await message.answer("Мини-апп не настроен: в .env нет MINIAPP_URL.")
+        return
+    await message.answer(
+        "📥 Разбор входящих — в мини-аппе:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Открыть", web_app=WebAppInfo(url=config.MINIAPP_URL)),
+        ]]),
     )
 
 

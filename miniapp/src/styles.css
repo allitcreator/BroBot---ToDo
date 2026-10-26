@@ -1,0 +1,49 @@
+/* Цвета берутся из темы Telegram (--tg-theme-*), fallback — для браузера. */
+:root {
+  --bg: var(--tg-theme-bg-color, #fff);
+  --text: var(--tg-theme-text-color, #111);
+  --hint: var(--tg-theme-hint-color, #888);
+  --card: var(--tg-theme-secondary-bg-color, #f2f2f5);
+  --button: var(--tg-theme-button-color, #3390ec);
+  --button-text: var(--tg-theme-button-text-color, #fff);
+  --danger: var(--tg-theme-destructive-text-color, #e53935);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+main { padding: 12px 12px 32px; }
+.center { text-align: center; color: var(--hint); padding-top: 40px; }
+
+header { display: flex; align-items: center; justify-content: space-between; }
+h1 { font-size: 20px; margin: 4px 0 12px; }
+
+ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.card { background: var(--card); border-radius: 12px; padding: 12px; }
+.title { font-weight: 600; word-break: break-word; }
+.note {
+  color: var(--hint); font-size: 14px; margin-top: 4px; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.meta { color: var(--hint); font-size: 12px; margin-top: 6px; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+button, .date {
+  border: 0; border-radius: 8px; padding: 8px 12px; font-size: 14px;
+  background: var(--button); color: var(--button-text); cursor: pointer;
+}
+button:disabled, .date.disabled { opacity: 0.5; }
+button.ghost { background: transparent; color: var(--button); font-size: 22px; padding: 4px 8px; }
+button.danger { background: transparent; color: var(--danger); }
+
+/* Нативный выбор даты поверх кнопки «Дата»: на телефоне открывается системный пикер. */
+.date { position: relative; overflow: hidden; }
+.date input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }

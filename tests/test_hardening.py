@@ -154,3 +154,50 @@ def test_config_webhook_requires_secret(monkeypatch):
 
     _set_config(monkeypatch, USE_WEBHOOK=True, WEBHOOK_HOST="https://x", WEBHOOK_SECRET="x" * 32)
     assert config.config_problems() == []
+
+
+# --- кэш срезов задач ---
+
+class _CountingRequest:
+    def __init__(self):
+        self.gets = 0
+        self.writes = 0
+
+    async def __call__(self, method, path, params=None, **kwargs):
+        if method == "GET":
+            self.gets += 1
+            return {"value": [{"id": "t"}]}
+        self.writes += 1
+        return None
+
+
+def test_срез_задач_кэшируется_и_сбрасывается_записью(monkeypatch):
+    fake = _CountingRequest()
+    monkeypatch.setattr(ms_todo, "_send", fake)
+    ms_todo.invalidate_cache()
+
+    async def scenario():
+        await ms_todo.get_tasks("status ne 'completed'")
+        await ms_todo.get_tasks("status ne 'completed'")
+        assert fake.gets == 1, "второй вызов — из кэша"
+        await ms_todo.update_task("t", title="новое")
+        await ms_todo.get_tasks("status ne 'completed'")
+        assert fake.gets == 2, "запись сбрасывает кэш"
+
+    asyncio.run(scenario())
+
+
+def test_кэш_истекает(monkeypatch):
+    fake = _CountingRequest()
+    monkeypatch.setattr(ms_todo, "_send", fake)
+    ms_todo.invalidate_cache()
+    now = [1000.0]
+    monkeypatch.setattr(ms_todo.time, "monotonic", lambda: now[0])
+
+    async def scenario():
+        await ms_todo.get_tasks("status ne 'completed'")
+        now[0] += ms_todo.CACHE_TTL + 1
+        await ms_todo.get_tasks("status ne 'completed'")
+
+    asyncio.run(scenario())
+    assert fake.gets == 2
