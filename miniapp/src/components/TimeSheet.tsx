@@ -81,13 +81,15 @@ function TimeSheet({ tasks, label, onDone }: { tasks: Task[]; label: string; onD
 // ask(задачи, «Завтра») открывает окно и ждёт ответа: время по ключам или
 // null при отмене. sheet нужно отрисовать в экране.
 export function useTimeAsk() {
-  const [req, setReq] = useState<{ tasks: Task[]; label: string; resolve: (t: Times | null) => void } | null>(null);
+  const [req, setReq] = useState<{ id: number; tasks: Task[]; label: string; resolve: (t: Times | null) => void } | null>(null);
 
+  // Своё id у каждого окна: два вопроса подряд не делят состояние полей.
   const ask = (tasks: Task[], label: string) =>
-    new Promise<Times | null>((resolve) => setReq({ tasks, label, resolve }));
+    new Promise<Times | null>((resolve) => setReq({ id: Date.now() + Math.random(), tasks, label, resolve }));
 
   const sheet: ReactNode = req && (
     <TimeSheet
+      key={req.id}
       tasks={req.tasks}
       label={req.label}
       onDone={(times) => {

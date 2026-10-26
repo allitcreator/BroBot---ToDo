@@ -252,6 +252,31 @@ describe("Вечернее закрытие", () => {
     expect(api.moveKeys).toHaveBeenCalledWith(["e3"], iso(1), expect.anything());
   });
 
+  it("два дня с задачами со временем — два окна, у каждого свои задачи", async () => {
+    vi.mocked(api.getEvening).mockResolvedValue({
+      ...structuredClone(evening),
+      today_open: [t("a", "Созвон", { date: iso(0), calendar: true }), t("b", "Врач", { date: iso(0), reminder: true })],
+    });
+    vi.mocked(api.getTaskTime).mockImplementation(async (key) => ({ time: key === "a" ? "11:00" : "18:00" }));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Что успел?" });
+    await userEvent.click(screen.getByRole("button", { name: "Дальше" }));
+    await userEvent.selectOptions(await screen.findByRole("combobox", { name: "День: Врач" }), iso(2));
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть день" }));
+
+    let dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Время: Созвон")).toHaveValue("11:00"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Перенести" }));
+
+    dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Время: Врач")).toHaveValue("18:00"));
+    expect(within(dialog).queryByText("Созвон")).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Перенести" }));
+
+    await waitFor(() => expect(api.moveKeys).toHaveBeenCalledWith(["b"], iso(2), { b: "18:00" }));
+    expect(api.moveKeys).toHaveBeenCalledWith(["a"], iso(1), { a: "11:00" });
+  });
+
   it("«Готово» отмечает ритуал и возвращает в приложение", async () => {
     await markDone();
     await userEvent.click(screen.getByRole("button", { name: "Закрыть день" }));
