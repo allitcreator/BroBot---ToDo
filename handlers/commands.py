@@ -62,6 +62,8 @@ async def cmd_start(message: Message):
 async def cmd_skip(message: Message):
     user_id = message.from_user.id
     await storage.clear_state(user_id)
+    # Иначе брошенный форвард приезжал описанием к следующей, чужой задаче.
+    await storage.pop_forward(user_id)
     await message.answer("Пропущено.")
 
 

@@ -4,8 +4,8 @@ import config
 from db import storage
 from db.storage import register_task_id
 from services import llm, ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb, unclear_kb
-from handlers.utils import format_task_preview, ask_reminder_if_needed
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb, unclear_kb, inbox_task_kb
+from handlers.utils import format_task_preview, ask_reminder_if_needed, inbox_created_text
 from handlers import project_flow
 
 router = Router()
@@ -129,6 +129,17 @@ def _build_forward_description(message: Message) -> str:
     return "\n\n".join(parts)
 
 
+def _forward_title(message: Message) -> str:
+    """Название для форварда без комментария — первая строка его текста."""
+    text = (message.text or message.caption or "").strip()
+    first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if not first:
+        return "Пересланное сообщение"
+    if len(first) > 80:
+        first = first[:80].rsplit(" ", 1)[0] + "…"
+    return first
+
+
 async def _handle_new_task(message: Message):
     user_id = message.from_user.id
     description = None
@@ -150,14 +161,18 @@ async def _handle_new_task(message: Message):
             )
             return
 
-        # Ждём 2 секунды — если комментарий не придёт, спросим
+        # Ждём 2 секунды: комментарий к форварду Telegram шлёт отдельным
+        # сообщением, и он может прийти чуть позже. Не пришёл — форвард без
+        # комментария, кладём его во входящие как есть.
         import asyncio
         await asyncio.sleep(2)
-        # Проверяем: если форвард всё ещё в БД (не подхвачен комментарием) — спрашиваем
         still_saved = await storage.pop_forward(user_id)
-        if still_saved:
-            await storage.save_forward(user_id, still_saved)
-            await message.answer("💬 Напиши что сделать с этим сообщением (или /skip чтобы пропустить):")
+        if still_saved is not None:
+            await _create_task_and_ask_calendar(message, {
+                "title": _forward_title(message),
+                "due_date": None,
+                "description": still_saved or None,
+            })
         return
 
     try:
@@ -231,6 +246,12 @@ async def _create_task_and_ask_calendar(message: Message, task: dict):
         return
 
     key = await register_task_id(created["id"])
+
+    # Без даты — во входящие: ни календаря, ни напоминания, день не трогаем.
+    if not task.get("due_date"):
+        await message.answer(await inbox_created_text(task["title"]), reply_markup=inbox_task_kb(key))
+        return
+
     await message.answer(
         f"✅ Задача создана: {task['title']}",
         reply_markup=task_actions_kb(key),

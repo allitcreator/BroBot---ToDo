@@ -329,6 +329,12 @@ async def get_all_tasks(list_id: str | None = None) -> list[dict]:
     return await get_tasks("status ne 'completed'", list_id)
 
 
+async def get_inbox_tasks() -> list[dict]:
+    """Входящие — открытые задачи без срока: склад того, что ещё не разобрано."""
+    tasks = await get_tasks("status ne 'completed'")
+    return [t for t in tasks if not t.get("dueDateTime")]
+
+
 async def get_overdue_tasks() -> list[dict]:
     today = config.local_today().isoformat()
     tasks = await get_tasks("status ne 'completed'")

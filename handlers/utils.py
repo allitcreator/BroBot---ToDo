@@ -64,6 +64,8 @@ def format_task_preview(task: dict) -> str:
             lines.append(f"📅 {date_str} в {due_time}")
         else:
             lines.append(f"📅 {date_str}")
+    else:
+        lines.append("📥 Во входящие")
 
     desc = task.get("description")
     if desc:
@@ -133,3 +135,15 @@ def format_due_date(due_datetime: dict | None) -> str:
         return d.strftime("%d.%m.%Y")
     except Exception:
         return "?"
+
+
+async def inbox_created_text(title: str) -> str:
+    """Ответ после записи во входящие — со счётчиком, чтобы склад был на виду."""
+    from services import ms_todo
+    try:
+        count = len(await ms_todo.get_inbox_tasks())
+        tail = f"\nВсего во входящих: {count}"
+    except Exception:
+        # Счётчик — подсказка, а не результат: задача уже записана.
+        tail = ""
+    return f"📥 Во входящих: {title}{tail}"

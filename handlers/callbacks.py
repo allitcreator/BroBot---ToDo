@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
@@ -11,8 +11,12 @@ from handlers.keyboards import (
     confirm_done_kb, confirm_delete_kb, task_actions_kb,
     task_more_kb, reminder_where_kb, reminder_ask_kb,
     project_actions_kb, project_fields_kb, project_confirm_delete_kb,
+    inbox_task_kb,
 )
-from handlers.utils import ask_reminder_if_needed, format_task_preview, rebuild_task_text, format_fire_at, format_event_info
+from handlers.utils import (
+    ask_reminder_if_needed, format_task_preview, rebuild_task_text, format_fire_at, format_event_info,
+    inbox_created_text,
+)
 from handlers import project_flow
 
 router = Router()
@@ -21,6 +25,28 @@ user_filter = F.from_user.func(lambda u: u.id == config.TELEGRAM_USER_ID)
 
 
 # --- Подтверждение создания задачи ---
+
+@router.callback_query(F.data.startswith("inbox:"), user_filter)
+async def cb_inbox_schedule(callback: CallbackQuery):
+    """Разбор элемента входящих прямо из чата: на сегодня или на завтра."""
+    _, when, key = callback.data.split(":", 2)
+    task_id = await resolve_task_id(key)
+    if not task_id:
+        await callback.answer("Задача не найдена", show_alert=True)
+        return
+
+    day = config.local_today() + timedelta(days=1 if when == "tomorrow" else 0)
+    try:
+        await ms_todo.update_task(task_id, due_date=day.isoformat())
+    except Exception as e:
+        await callback.answer(f"Не получилось: {e}"[:200], show_alert=True)
+        return
+
+    label = "сегодня" if when == "today" else "завтра"
+    text = (callback.message.text or "").replace("📥 Во входящих:", f"📅 На {label}:", 1)
+    await callback.message.edit_text(text.split("\nВсего во входящих")[0], reply_markup=task_actions_kb(key))
+    await callback.answer(f"Перенесено на {label}")
+
 
 @router.callback_query(F.data == "confirm:create", user_filter)
 async def cb_confirm_create(callback: CallbackQuery):
@@ -47,6 +73,12 @@ async def cb_confirm_create(callback: CallbackQuery):
         return
 
     key = await register_task_id(created["id"])
+
+    if not task.get("due_date"):
+        await callback.message.answer(await inbox_created_text(task["title"]), reply_markup=inbox_task_kb(key))
+        await callback.answer()
+        return
+
     await callback.message.answer(
         f"✅ Задача создана: {task['title']}",
         reply_markup=task_actions_kb(key),
