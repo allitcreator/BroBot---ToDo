@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Title } from "./Title";
 
-export type CardAction = { label: string; onClick: () => void; danger?: boolean };
+// quiet — второстепенное действие («Пропустить»): тихая ссылка под сеткой.
+export type CardAction = { label: string; onClick: () => void; danger?: boolean; main?: boolean; quiet?: boolean };
 
 type Props = {
   title: string;
@@ -11,46 +13,99 @@ type Props = {
   // Перенос на выбранную дату. Переносим только по «Перенести»: iOS при
   // открытии пикера сам подставляет сегодня и шлёт change.
   onPickDate?: (date: string) => void;
+  // Чекбокс слева: закрыть задачу.
+  onDone?: () => void;
+  // Действия видны сразу (входящие, разбор); иначе — по нажатию на задачу.
+  open?: boolean;
+  // Крупная карточка шага разбора: одна задача, решения сеткой.
+  big?: boolean;
 };
 
-export function TaskCard({ title, note, meta, disabled, actions, onPickDate }: Props) {
+// Строка задачи в стиле Things 3: чекбокс, название, под ним заметка и метки.
+export function TaskCard({ title, note, meta, disabled, actions, onPickDate, onDone, open = false, big = false }: Props) {
+  const [expanded, setExpanded] = useState(false);
   const [picking, setPicking] = useState<string | null>(null);
+  const shown = open || big || expanded;
 
-  return (
-    <li className="card">
-      <div className="title">{title}</div>
-      {note && <div className="note">{note}</div>}
-      {meta && <div className="meta">{meta}</div>}
-      <div className="actions">
-        {actions.map((a) => (
-          <button key={a.label} className={a.danger ? "danger" : undefined} disabled={disabled} onClick={a.onClick}>
+  const quiet = actions.filter((a) => a.quiet);
+  const buttons = (
+    <div className={big ? "opts" : "actions"}>
+      {actions.filter((a) => !a.quiet).map((a) => (
+        <button key={a.label} className={[a.danger && "danger", a.main && "main"].filter(Boolean).join(" ") || undefined} disabled={disabled} onClick={a.onClick}>
+          {a.label}
+        </button>
+      ))}
+      {onPickDate && (
+        <button disabled={disabled} onClick={() => setPicking("")}>
+          Дата
+        </button>
+      )}
+    </div>
+  );
+
+  const picker = onPickDate && picking !== null && (
+    <div className="picker">
+      <input type="date" aria-label="Выбрать дату" value={picking} onChange={(e) => setPicking(e.target.value)} />
+      <button
+        className="main"
+        disabled={!picking || disabled}
+        onClick={() => {
+          const date = picking;
+          setPicking(null);
+          onPickDate(date);
+        }}
+      >
+        Перенести
+      </button>
+      <button className="ghost-text" onClick={() => setPicking(null)}>
+        Отмена
+      </button>
+    </div>
+  );
+
+  if (big) {
+    return (
+      <li className="bigcard">
+        <div className="card-box">
+          <div className="title">
+            <Title text={title} />
+          </div>
+          {note && (
+            <div className="note">
+              <Title text={note} />
+            </div>
+          )}
+          {meta && <div className="meta">{meta}</div>}
+        </div>
+        {buttons}
+        {picker}
+        {quiet.map((a) => (
+          <button key={a.label} className="ghost-text wide quiet" disabled={disabled} onClick={a.onClick}>
             {a.label}
           </button>
         ))}
-        {onPickDate && (
-          <button disabled={disabled} onClick={() => setPicking("")}>
-            Дата
-          </button>
-        )}
-      </div>
-      {onPickDate && picking !== null && (
-        <div className="picker">
-          <input type="date" aria-label="Выбрать дату" value={picking} onChange={(e) => setPicking(e.target.value)} />
-          <button
-            disabled={!picking || disabled}
-            onClick={() => {
-              const date = picking;
-              setPicking(null);
-              onPickDate(date);
-            }}
-          >
-            Перенести
-          </button>
-          <button className="ghost-text" onClick={() => setPicking(null)}>
-            Отмена
-          </button>
+      </li>
+    );
+  }
+
+  return (
+    <li className={shown ? "row open" : "row"}>
+      {onDone ? <button className="cb" aria-label="Готово" disabled={disabled} onClick={onDone} /> : <span className="cb-space" />}
+      <div className="row-body">
+        <div className={open ? "row-main" : "row-main tappable"} onClick={open ? undefined : () => setExpanded((v) => !v)}>
+          <div className="title">
+            <Title text={title} />
+          </div>
+          {note && (
+            <div className="note">
+              <Title text={note} />
+            </div>
+          )}
+          {meta && <div className="meta">{meta}</div>}
         </div>
-      )}
+        {shown && buttons}
+        {picker}
+      </div>
     </li>
   );
 }

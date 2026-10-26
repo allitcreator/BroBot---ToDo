@@ -20,6 +20,7 @@ vi.mock("./telegram", () => ({
   haptic: vi.fn(),
   initData: () => "",
   ready: () => undefined,
+  openLink: vi.fn(),
 }));
 
 const items = [
@@ -51,7 +52,8 @@ describe("Входящие", () => {
     await renderInbox();
     expect(await screen.findByText("Статья про индексы")).toBeInTheDocument();
     expect(screen.getByText("Посмотреть фильм")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Входящие · 2");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Входящие");
+    expect(screen.getByText("2 без даты")).toBeInTheDocument();
   });
 
   it("«Сегодня» назначает день и убирает элемент из списка", async () => {
@@ -61,7 +63,7 @@ describe("Входящие", () => {
 
     expect(api.scheduleTask).toHaveBeenCalledWith("aaaa1111", "today");
     await waitFor(() => expect(screen.queryByText("Статья про индексы")).not.toBeInTheDocument());
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Входящие · 1");
+    expect(screen.getByText("1 без даты")).toBeInTheDocument();
   });
 
   it("двойной тап не шлёт два запроса", async () => {
@@ -264,7 +266,12 @@ describe("Перенос задачи со временем", () => {
     await screen.findByText("Позвонить");
   }
 
-  const card = (title: string) => screen.getByText(title, { selector: ".title" }).closest("li")!;
+  // Действия строки скрыты, пока не нажать на задачу.
+  const card = (title: string) => {
+    const li = screen.getByText(title, { selector: ".title" }).closest("li")!;
+    if (!within(li).queryByRole("button", { name: "Завтра" })) fireEvent.click(within(li).getByText(title, { selector: ".title" }));
+    return li;
+  };
 
   it("спрашивает время, подставив старое, и переносит с новым", async () => {
     await open();
@@ -343,8 +350,9 @@ describe("Неделя", () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("tab", { name: /Неделя/ }));
     await screen.findByText("Отчёт");
-    expect(screen.getByText("Завтра")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Завтра · 1" })).toBeInTheDocument();
 
+    await userEvent.click(screen.getByText("Отчёт"));
     const card = screen.getByText("Отчёт").closest("li")!;
     await userEvent.click(within(card).getByRole("button", { name: "Дата" }));
     fireEvent.change(within(card).getByLabelText("Выбрать дату"), { target: { value: iso(3) } });
@@ -366,7 +374,8 @@ describe("Неделя", () => {
     vi.mocked(api.scheduleTask).mockResolvedValue({ ok: true, date: iso(3) });
     render(<App />);
     await userEvent.click(await screen.findByRole("tab", { name: /Неделя/ }));
-    const card = (await screen.findByText("Созвон")).closest("li")!;
+    await userEvent.click(await screen.findByText("Созвон"));
+    const card = screen.getByText("Созвон").closest("li")!;
     await userEvent.click(within(card).getByRole("button", { name: "Дата" }));
     fireEvent.change(within(card).getByLabelText("Выбрать дату"), { target: { value: iso(3) } });
     await userEvent.click(within(card).getByRole("button", { name: "Перенести" }));

@@ -22,3 +22,8 @@ export function localToday(): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+// «вторник, 27 октября» — подзаголовок «Сегодня».
+export function longDate(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
+}

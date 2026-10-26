@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Evening, RitualTask, Settings, Times, completeTask, getEvening, getStats, moveKeys, ritualDone } from "../api";
 import { ErrorView, errorText } from "../components/Status";
+import { Title } from "../components/Title";
 import { hasTime, useTimeAsk, warningText } from "../components/TimeSheet";
 import { badges, dayLabel, localToday } from "../format";
 import { plural } from "../plural";
@@ -177,7 +178,7 @@ export function RitualEvening({ settings, onClose }: { settings: Settings | null
                 <label>
                   <input type="checkbox" aria-label={task.title} checked={checked.has(task.key)} onChange={() => toggle(task.key)} />
                   <span>
-                    {task.title} {badges(task) && <small>{badges(task)}</small>}
+                    <Title text={task.title} /> {badges(task) && <small>{badges(task)}</small>}
                   </span>
                 </label>
               </li>
@@ -196,7 +197,9 @@ export function RitualEvening({ settings, onClose }: { settings: Settings | null
           <ul>
             {left.map((task) => (
               <li key={task.key} className="card move-row">
-                <span className="title">{task.title}</span>
+                <span className="title">
+                  <Title text={task.title} />
+                </span>
                 <select
                   aria-label={`День: ${task.title}`}
                   value={days[task.key] ?? tomorrow}
@@ -220,7 +223,9 @@ export function RitualEvening({ settings, onClose }: { settings: Settings | null
                 </li>
               ))}
               {data.tomorrow.map((t) => (
-                <li key={t.key}>{t.title}</li>
+                <li key={t.key}>
+                  <Title text={t.title} />
+                </li>
               ))}
               {!data.tomorrow.length && !data.tomorrow_events?.length && <li className="hint">Пока пусто</li>}
             </ul>

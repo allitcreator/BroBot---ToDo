@@ -3,7 +3,8 @@ import { Task, Times, completeTask, deleteTask, getToday, moveTasks, scheduleTas
 import { TaskCard } from "../components/TaskCard";
 import { hasTime, reportWarnings, useTimeAsk, warningText } from "../components/TimeSheet";
 import { ErrorView, errorText } from "../components/Status";
-import { badges, dayLabel, localToday } from "../format";
+import { badges, dayLabel, localToday, longDate } from "../format";
+import { plural } from "../plural";
 import { shortTitle, useCardActions } from "../hooks";
 import { alertUser, confirm, haptic } from "../telegram";
 
@@ -106,6 +107,7 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
   };
 
   const today = localToday();
+  const total = data.overdue.length + data.today.length;
   const card = (task: Task, overdue: boolean) => (
     <TaskCard
       key={task.key}
@@ -113,11 +115,11 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
       note={task.note}
       meta={[overdue && task.date ? dayLabel(task.date, today) : "", badges(task)].filter(Boolean).join(" · ")}
       disabled={isBusy(task.key)}
+      onDone={() => void act(task, () => completeTask(task.key))}
       actions={[
-        { label: "Готово", onClick: () => void act(task, () => completeTask(task.key)) },
         overdue
-          ? { label: "Сегодня", onClick: () => void schedule(task, "today", "Сегодня") }
-          : { label: "Завтра", onClick: () => void schedule(task, "tomorrow", "Завтра") },
+          ? { label: "Сегодня", main: true, onClick: () => void schedule(task, "today", "Сегодня") }
+          : { label: "Завтра", main: true, onClick: () => void schedule(task, "tomorrow", "Завтра") },
         { label: "Удалить", danger: true, onClick: () => void remove(task) },
       ]}
       onPickDate={(date) => void schedule(task, date, dayLabel(date, today))}
@@ -127,25 +129,32 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
   return (
     <>
       <header>
-        <h1>Сегодня · {data.today.length}</h1>
+        <h1>
+          <span className="star">★</span>Сегодня
+        </h1>
         <button className="ghost" onClick={() => void load()} aria-label="Обновить">↻</button>
       </header>
+      <p className="sub">
+        {longDate(today)}
+        {total > 0 && ` · ${total} ${plural(total, "задача", "задачи", "задач")}`}
+      </p>
 
       {onRitual && (
-        <div className="ritual-entry">
+        <div className="pills">
           <button onClick={() => onRitual("morning")}>☀️ Утренний разбор</button>
           <button onClick={() => onRitual("evening")}>🌙 Закрыть день</button>
         </div>
       )}
       {inbox > 0 && onOpenInbox && (
-        <button className="banner" onClick={onOpenInbox}>
-          📥 {inbox} во входящих <span>Разобрать</span>
+        <button className="inbox-line" onClick={onOpenInbox}>
+          <span>📥 {inbox} во входящих</span>
+          <span>Разобрать ›</span>
         </button>
       )}
 
       {data.overdue.length > 0 && (
         <section>
-          <div className="section-head">
+          <div className="group danger">
             <h2>Просрочено · {data.overdue.length}</h2>
             <button className="ghost-text" disabled={moving} onClick={() => void moveAll("overdue", "today", data.overdue)}>
               Все на сегодня
@@ -156,13 +165,16 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
       )}
 
       <section>
-        {data.overdue.length > 0 && (
-          <div className="section-head">
-            <h2>На сегодня · {data.today.length}</h2>
+        {data.today.length > 0 && (
+          <div className="group">
+            <h2>{data.overdue.length > 0 ? "На сегодня" : "Задачи"} · {data.today.length}</h2>
           </div>
         )}
         {data.today.length === 0 ? (
-          <p className="center">На сегодня ничего 🎉</p>
+          <div className="empty">
+            <div className="big">★</div>
+            На сегодня ничего 🎉
+          </div>
         ) : (
           <>
             <ul>{data.today.map((t) => card(t, false))}</ul>

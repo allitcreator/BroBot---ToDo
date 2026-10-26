@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Morning, Plan, RitualTask, Times, deleteTask, getMorning, getPlan, moveKeys, ritualDone, scheduleTask } from "../api";
 import { ErrorView, errorText } from "../components/Status";
 import { TaskCard } from "../components/TaskCard";
+import { Title } from "../components/Title";
 import { hasTime, reportWarnings, useTimeAsk, warningText } from "../components/TimeSheet";
 import { badges, dayLabel, localToday, shortDate } from "../format";
 import { shortTitle } from "../hooks";
@@ -136,17 +137,17 @@ export function RitualMorning({ onClose }: { onClose: () => void }) {
     // Последняя карточка шага — после действия сразу следующий шаг.
     const last = data[s].length === 1;
     const then = (p: Promise<boolean>) => void p.then((ok) => ok && last && nextStep());
-    const skip = { label: "Пропустить", onClick: () => (last ? nextStep() : drop(s, task.key)) };
+    const skip = { label: "Пропустить", quiet: true, onClick: () => (last ? nextStep() : drop(s, task.key)) };
     const actions =
       s === "stuck"
         ? [
-            { label: "Сегодня", onClick: () => then(schedule(s, task, "today", "Сегодня")) },
+            { label: "Сегодня", main: true, onClick: () => then(schedule(s, task, "today", "Сегодня")) },
             { label: "Через 2 недели", onClick: () => then(schedule(s, task, addDays(today, 14), dayLabel(addDays(today, 14), today))) },
             { label: "Удалить", danger: true, onClick: () => then(remove(s, task)) },
             skip,
           ]
         : [
-            { label: "Сегодня", onClick: () => then(schedule(s, task, "today", "Сегодня")) },
+            { label: "Сегодня", main: true, onClick: () => then(schedule(s, task, "today", "Сегодня")) },
             { label: "Удалить", danger: true, onClick: () => then(remove(s, task)) },
             skip,
           ];
@@ -158,6 +159,7 @@ export function RitualMorning({ onClose }: { onClose: () => void }) {
         <ul>
           <TaskCard
             key={task.key}
+            big
             title={task.title}
             note={task.note}
             meta={[task.created ? `создана ${shortDate(task.created)}` : "", badges(task)].filter(Boolean).join(" · ")}
@@ -208,8 +210,9 @@ export function RitualMorning({ onClose }: { onClose: () => void }) {
                 note={task.note}
                 meta={[task.date ? dayLabel(task.date, today) : "", badges(task)].filter(Boolean).join(" · ")}
                 disabled={busy}
+                open
                 actions={[
-                  { label: "Сегодня", onClick: () => void schedule("overdue", task, "today", "Сегодня") },
+                  { label: "Сегодня", main: true, onClick: () => void schedule("overdue", task, "today", "Сегодня") },
                   { label: "Удалить", danger: true, onClick: () => void remove("overdue", task) },
                 ]}
                 onPickDate={(date) => void schedule("overdue", task, date, dayLabel(date, today))}
@@ -282,7 +285,7 @@ function PlanStep({ startedAt, onFinish }: { startedAt: number; onFinish: () => 
           <ul className="plan-list">
             {today.map((t) => (
               <li key={t.key}>
-                {t.time && <span className="time">{t.time}</span>} {t.title}
+                {t.time && <span className="time">{t.time}</span>} <Title text={t.title} />
               </li>
             ))}
           </ul>

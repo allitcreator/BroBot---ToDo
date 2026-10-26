@@ -49,12 +49,14 @@ export function SettingsScreen({ settings, onSettings }: Props) {
   return (
     <>
       <header>
-        <h1>Настройки</h1>
+        <h1>
+          <span className="ico">⚙️</span>Ещё
+        </h1>
         <button className="ghost" onClick={() => void loadStats()} aria-label="Обновить">↻</button>
       </header>
 
-      <section className="card">
-        <div className="section-head">
+      <section>
+        <div className="group">
           <h2>Статистика</h2>
         </div>
         {stats.kind === "loading" && <div className="center small">Считаю…</div>}
@@ -64,32 +66,8 @@ export function SettingsScreen({ settings, onSettings }: Props) {
 
       {settings && (
         <>
-          <section className="card">
-            <div className="section-head">
-              <h2>Подтверждать задачи</h2>
-            </div>
-            <div className="modes" role="radiogroup">
-              {MODES.map((m) => (
-                <label key={m.value} className="mode">
-                  <input
-                    type="radio"
-                    name="confirm_mode"
-                    disabled={saving}
-                    checked={settings.confirm_mode === m.value}
-                    onChange={() => void change({ confirm_mode: m.value })}
-                    aria-label={m.label}
-                  />
-                  <span>
-                    {m.label}
-                    <small>{m.hint}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="section-head">
+          <section>
+            <div className="group">
               <h2>Ритуалы</h2>
             </div>
             <Toggle
@@ -107,7 +85,7 @@ export function SettingsScreen({ settings, onSettings }: Props) {
             />
             <Toggle
               label="Вечернее закрытие"
-              hint="если на сегодня остались незакрытые задачи"
+              hint="если на сегодня остались задачи"
               checked={settings.evening_enabled}
               disabled={saving}
               onChange={(v) => void change({ evening_enabled: v })}
@@ -118,10 +96,10 @@ export function SettingsScreen({ settings, onSettings }: Props) {
               disabled={saving || !settings.evening_enabled}
               onChange={(v) => void change({ evening_time: v })}
             />
-            <label className="toggle">
+            <label className="set">
               <span>
                 «Застряло» — старше
-                <small>показывать до 3 за утро</small>
+                <small>до 3 задач за утро</small>
               </span>
               <select
                 aria-label="Застряло: порог в днях"
@@ -145,21 +123,28 @@ export function SettingsScreen({ settings, onSettings }: Props) {
             />
           </section>
 
-          <section className="card">
-            <Toggle
-              label="Разбор идей в проекты"
-              hint="идею бот разбирает вопросами и заводит проектом"
-              checked={settings.projects_enabled}
-              disabled={saving}
-              onChange={(v) => void change({ projects_enabled: v })}
-            />
-            <Toggle
-              label="Разведка в интернете"
-              hint="ищет готовые решения по проекту, ~полцента за запуск"
-              checked={settings.research_enabled}
-              disabled={saving}
-              onChange={(v) => void change({ research_enabled: v })}
-            />
+          <section>
+            <div className="group">
+              <h2>Создание задач</h2>
+            </div>
+            <label className="set">
+              <span>
+                Подтверждать задачи
+                <small>{MODES.find((m) => m.value === settings.confirm_mode)?.hint}</small>
+              </span>
+              <select
+                aria-label="Подтверждать задачи"
+                value={settings.confirm_mode}
+                disabled={saving}
+                onChange={(e) => void change({ confirm_mode: e.target.value as Settings["confirm_mode"] })}
+              >
+                {MODES.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </section>
         </>
       )}
@@ -167,21 +152,30 @@ export function SettingsScreen({ settings, onSettings }: Props) {
   );
 }
 
+// Переключатель в стиле iOS: role="switch", а не голый чекбокс.
 function Toggle({ label, hint, checked, disabled, onChange }: { label: string; hint: string; checked: boolean; disabled: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="toggle">
+    <div className="set">
       <span>
         {label}
         <small>{hint}</small>
       </span>
-      <input type="checkbox" role="checkbox" aria-label={label} checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-    </label>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        className={checked ? "switch on" : "switch"}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+      />
+    </div>
   );
 }
 
 function TimeSelect({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
   return (
-    <label className="toggle sub">
+    <label className="set sub">
       <span>Время</span>
       <select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
         {TIMES.map((t) => (
@@ -197,19 +191,17 @@ function TimeSelect({ label, value, disabled, onChange }: { label: string; value
 function StatsView({ s }: { s: Stats }) {
   const max = Math.max(1, ...s.week.map((d) => d.completed));
   const rows: [string, number][] = [
-    ["Выполнено сегодня", s.completed_today],
-    ["Создано сегодня", s.created_today],
-    ["Открытых задач", s.open_tasks],
-    ["Во входящих", s.inbox],
-    ["Просрочено", s.overdue],
+    ["сделано сегодня", s.completed_today],
+    ["открытых", s.open_tasks],
+    ["во входящих", s.inbox],
   ];
   return (
     <>
       <div className="stats">
         {rows.map(([label, value]) => (
           <div key={label} className="stat">
-            <span>{label}</span>
             <b>{value}</b>
+            <span>{label}</span>
           </div>
         ))}
       </div>

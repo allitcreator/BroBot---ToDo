@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { MoveWarning, Task, Times, getTaskTime } from "../api";
 import { alertUser } from "../telegram";
+import { Title } from "./Title";
 
 // Время задачи живёт в напоминаниях и событии календаря (значки 🔔/🗓), у
 // самой задачи в To Do только дата. При переносе такой задачи спрашиваем
@@ -44,7 +45,9 @@ function TimeSheet({ tasks, label, onDone }: { tasks: Task[]; label: string; onD
             const row = rows[t.key];
             return (
               <li key={t.key} className="time-row">
-                <div className="title">{t.title}</div>
+                <div className="title">
+                  <Title text={t.title} />
+                </div>
                 <div className="picker">
                   <input
                     type="time"

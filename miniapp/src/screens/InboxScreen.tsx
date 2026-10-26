@@ -51,10 +51,19 @@ export function InboxScreen({ onChanged }: { onChanged?: () => void }) {
   return (
     <>
       <header>
-        <h1>Входящие · {items.length}</h1>
+        <h1>
+          <span className="ico">📥</span>Входящие
+        </h1>
         <button className="ghost" onClick={() => void load()} aria-label="Обновить">↻</button>
       </header>
-      {items.length === 0 && <p className="center">Пусто, всё разобрано 🎉</p>}
+      <p className="sub">{items.length} без даты</p>
+      {items.length === 0 && (
+        <div className="empty">
+          <div className="big">📥</div>
+          Пусто, всё разобрано 🎉
+          <small>Всё, что пришлёте боту без даты, ляжет сюда.</small>
+        </div>
+      )}
       <ul>
         {items.map((item) => (
           <TaskCard
@@ -63,8 +72,9 @@ export function InboxScreen({ onChanged }: { onChanged?: () => void }) {
             note={item.note}
             meta={shortDate(item.created)}
             disabled={isBusy(item.key)}
+            open
             actions={[
-              { label: "Сегодня", onClick: () => void act(item, () => scheduleTask(item.key, "today")) },
+              { label: "Сегодня", main: true, onClick: () => void act(item, () => scheduleTask(item.key, "today")) },
               { label: "Завтра", onClick: () => void act(item, () => scheduleTask(item.key, "tomorrow")) },
               { label: "Удалить", danger: true, onClick: () => void remove(item) },
             ]}

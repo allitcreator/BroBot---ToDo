@@ -21,6 +21,7 @@ vi.mock("./telegram", () => ({
   haptic: vi.fn(),
   initData: () => "",
   ready: () => undefined,
+  openLink: vi.fn(),
 }));
 
 function iso(offset: number): string {
@@ -138,7 +139,7 @@ describe("Утренний разбор", () => {
     vi.mocked(api.getMorning).mockResolvedValue({ overdue: [], stuck: [], inbox: structuredClone(morning.inbox) });
     render(<App />);
     expect(await screen.findByText("Пост про Postgres")).toBeInTheDocument();
-    expect(screen.getByText("https://t.me/c/1/2")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /t\.me/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Сегодня" }));
     expect(api.scheduleTask).toHaveBeenCalledWith("i1", "today");
     expect(await screen.findByText("Купить корм коту")).toBeInTheDocument();
@@ -312,5 +313,32 @@ describe("Вход в ритуалы из приложения", () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: /Закрыть день/ }));
     expect(await screen.findByRole("heading", { name: "Что успел?" })).toBeInTheDocument();
+  });
+});
+
+describe("Ссылки в названиях внутри ритуалов", () => {
+  const url = "https://st.example.ru/SALARY-634569";
+
+  it("план дня и закрытие дня показывают метку, а не адрес", async () => {
+    window.history.replaceState(null, "", "/?ritual=morning");
+    vi.mocked(api.getMorning).mockResolvedValue({ overdue: [], stuck: [], inbox: [] });
+    vi.mocked(api.getPlan).mockResolvedValue({ events: [], today: [t("p1", `Статус заявки ${url}`)], norm: 5 });
+    const r = render(<App />);
+    expect(await screen.findByRole("link", { name: /SALARY-634569/ })).toBeInTheDocument();
+    expect(screen.queryByText(/https:\/\//)).not.toBeInTheDocument();
+    r.unmount();
+
+    window.history.replaceState(null, "", "/?ritual=evening");
+    vi.mocked(api.getEvening).mockResolvedValue({
+      today_open: [t("e1", `Статус заявки ${url}`, { date: iso(0) })], done_today: 0,
+      tomorrow: [t("n1", `Завтра ${url}`)], tomorrow_events: [], inbox_count: 0,
+    });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Что успел?" });
+    expect(screen.getAllByRole("link", { name: /SALARY-634569/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/https:\/\//)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Дальше" }));
+    await screen.findByRole("heading", { name: "Остальное — на завтра?" });
+    expect(screen.queryByText(/https:\/\//)).not.toBeInTheDocument();
   });
 });

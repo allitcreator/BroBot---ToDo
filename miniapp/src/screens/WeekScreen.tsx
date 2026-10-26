@@ -5,6 +5,7 @@ import { hasTime, reportWarnings, useTimeAsk } from "../components/TimeSheet";
 import { ErrorView, errorText } from "../components/Status";
 import { badges, dayLabel, localToday } from "../format";
 import { shortTitle, useCardActions } from "../hooks";
+import { plural } from "../plural";
 import { confirm } from "../telegram";
 
 type Day = { date: string; items: Task[] };
@@ -81,13 +82,21 @@ export function WeekScreen({ onChanged }: { onChanged?: () => void }) {
   return (
     <>
       <header>
-        <h1>Неделя · {total}</h1>
+        <h1>
+          <span className="ico">📅</span>Неделя
+        </h1>
         <button className="ghost" onClick={() => void load()} aria-label="Обновить">↻</button>
       </header>
+      <p className="sub">
+        ближайшие 7 дней{total > 0 && ` · ${total} ${plural(total, "задача", "задачи", "задач")}`}
+      </p>
       {days.map((d) => (
         <section key={d.date}>
-          <div className="section-head">
-            <h2>{dayLabel(d.date, today)}</h2>
+          <div className="group">
+            <h2>
+              {dayLabel(d.date, today)}
+              {d.items.length > 0 && ` · ${d.items.length}`}
+            </h2>
           </div>
           {d.items.length === 0 ? (
             <p className="empty-day">—</p>
@@ -100,10 +109,8 @@ export function WeekScreen({ onChanged }: { onChanged?: () => void }) {
                   note={t.note}
                   meta={badges(t)}
                   disabled={isBusy(t.key)}
-                  actions={[
-                    { label: "Готово", onClick: () => void act(t, () => completeTask(t.key)) },
-                    { label: "Удалить", danger: true, onClick: () => void remove(t) },
-                  ]}
+                  onDone={() => void act(t, () => completeTask(t.key))}
+                  actions={[{ label: "Удалить", danger: true, onClick: () => void remove(t) }]}
                   onPickDate={(date) => void schedule(t, date)}
                 />
               ))}
