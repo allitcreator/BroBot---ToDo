@@ -74,12 +74,16 @@ async def _extras(task_id: str, task: dict | None) -> dict:
 
     out["tg"] = [(rid, _utc(fire_at)) for rid, fire_at in await storage.get_task_reminders(task_id)]
 
-    if task is None:
-        # Задачу целиком читаем, только если у неё вообще есть время:
-        # напоминание MS ставится ботом вместе с напоминанием бота.
-        # Без задачи на руках не видно лишь напоминаний, поставленных в
-        # самом To Do, — мини-апп передаёт задачу и их тоже двигает.
-        task = await ms_todo.get_task(task_id) if (event_id or out["tg"]) else {}
+    if event_id or out["tg"]:
+        # У задачи есть время — читаем её из Graph заново: копия из кэша
+        # списка может быть старой или без задачи вовсе, и напоминание MS
+        # (бот ставит его вместе со своим) осталось бы в старом дне.
+        task = await ms_todo.get_task(task_id)
+    elif task is None:
+        # Без события и напоминания бота лишний запрос не делаем: не видно
+        # лишь напоминаний, поставленных в самом To Do, а мини-апп передаёт
+        # задачу и их тоже двигает.
+        task = {}
     reminder = task.get("reminderDateTime") or {}
     if task.get("isReminderOn") and reminder.get("dateTime"):
         out["ms"] = _utc(reminder["dateTime"])

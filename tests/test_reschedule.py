@@ -219,3 +219,15 @@ def test_массовый_перенос_не_обрывается_на_сбой
     moved = run(task_ops.move_today_to_tomorrow())
     assert [t["id"] for t in moved] == ["b"]
     assert [c[0] for c in calls["due"]] == ["b"]
+
+
+def test_устаревшая_копия_задачи_не_прячет_напоминание_ms(run, graph):
+    # Мини-апп передаёт задачу из кэша списка; там напоминания MS может не быть.
+    calls, state = graph
+    state["task"] = {
+        "id": "t1", "title": "Позвонить", "isReminderOn": True,
+        "reminderDateTime": {"dateTime": "2026-10-27T12:00:00.0000000", "timeZone": "UTC"},
+    }
+    run(storage.save_reminder(1, "2026-10-27T12:00:00", "⏰", task_id="t1"))
+    run(task_ops.reschedule("t1", DAY, "16:00", task={"id": "t1", "title": "Позвонить"}))
+    assert calls["ms_reminder"] == [("t1", "2026-10-28T13:00:00")]
