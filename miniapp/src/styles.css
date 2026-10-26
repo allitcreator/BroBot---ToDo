@@ -122,5 +122,7 @@ section.card { margin-top: 10px; }
 }
 .sheet h2 { margin-bottom: 8px; }
 .time-row { list-style: none; padding: 8px 0; border-bottom: 1px solid rgba(127, 127, 127, 0.2); }
-.time-row label { display: flex; align-items: center; gap: 4px; color: var(--hint); font-size: 14px; }
+.time-row .picker input[type="time"] { flex: 0 0 auto; width: 120px; }
+.time-row label { display: flex; align-items: center; gap: 6px; color: var(--hint); font-size: 14px; white-space: nowrap; }
+.time-row label input { width: 18px; height: 18px; margin: 0; }
 .ritual-note { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; background: var(--card); font-size: 14px; }
