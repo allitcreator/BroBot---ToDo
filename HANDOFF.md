@@ -1,7 +1,7 @@
 # HANDOFF
 
 Статус: открыт
-Обновлено: 2026-10-27 00:25 MSK
+Обновлено: 2026-10-27 00:45 MSK
 Клиент: Claude
 
 ## Цель
@@ -75,47 +75,52 @@ Calendar + задачи + сравнение с нормой (медиана 5).
 
 ## Изменённые файлы
 
-Этап 0 ритуала **в проде** (`5b568b8`, бэкенд и фронт):
-- `services/task_ops.py` — `reschedule` (дата + сдвиг напоминания бота,
-  напоминания MS и события на одну дельту в UTC; при наличии времени
-  задача читается из Graph заново), `task_time`, массовые переносы чата.
-- `services/google_calendar.py` — `update_event`; `db/storage.py` —
-  `get_task_reminders`, `set_reminder_fire_at`.
-- `api/routes.py` — `schedule`/`move` с `time`/`times` и `warnings`;
-  `GET /api/tasks/{key}/time`.
-- `handlers/commands.py` — `/ritual morning|evening|test`.
-- `miniapp/src/components/TimeSheet.tsx` — окно времени («Сегодня»,
-  «Неделя»); `App.tsx` — метка `ritual=`.
-- `deploy/smoke_reschedule.py` — сквозной смоук переноса на проде.
+Ритуал разбора целиком **в проде** (`a56a836`, бэкенд и фронт), этапы 0–5
+`RITUAL-PLAN.md`:
+- `services/rituals.py` — когда слать (`due_rituals`), срезы утра
+  (`morning_slices`), тексты, `tick`, `snooze`/`dismiss`/`mark_done`,
+  `send_now`; `bot.py` — `_ritual_tick` в цикле напоминаний.
+- `db/storage.py` — колонки ритуалов в `settings`, таблица `ritual_runs`.
+- `api/ritual_routes.py` — `/api/ritual/morning|plan|evening`,
+  `/api/ritual/{kind}/done`; `api/routes.py` — `move` с `keys`.
+- `services/task_ops.py` — перенос с напоминаниями и событием (этап 0).
+- Мини-апп: `RitualMorning.tsx`, `RitualEvening.tsx`, `TimeSheet.tsx`,
+  раздел «Ритуалы» в настройках, «Сегодня» по умолчанию с плашкой входящих.
+- Смоуки: `deploy/smoke_rituals.py`, `deploy/smoke_reschedule.py`.
 
 ## Проверки
 
-- Бэкенд 161 passed, в сеть не ходят (`HTTPS_PROXY=http://127.0.0.1:9`);
-  фронт 35 passed; `tsc`, сборка ок. Ревью `reviewer` учтено.
-- Прод: `ssh vps4 "cd ~/todobot && docker compose exec -T todobot python -"
-  < deploy/smoke_reschedule.py` → 12/12 (первый прогон нашёл баг с
-  напоминанием MS — исправлен в `5b568b8`). Смоук ждёт подъёма бота:
-  сначала `curl -sf https://todo.alxforbot.online/health`.
-- Вид окна времени проверен снимком статичной страницы (`qlmanage`).
-- Не проверено живьём: `?ritual=` из inline web_app-кнопки в Telegram.
-- Не проверено: cron бэкапа БД в 04:30 27.10 —
-  `ssh vps4 'tail -3 /var/log/todobot-backup.log; ls /root/todobot/backups'`.
+- Бэкенд 213 passed (с отрезанной сетью), фронт 56 passed, `tsc`, сборка.
+- Ревью `reviewer` на каждый этап; важные находки исправлены с тестами.
+- Прод после выкатки: `smoke_rituals.py` 11/11, `smoke_reschedule.py`
+  12/12; логи без ошибок. Бэкап перед миграцией:
+  `/root/todobot/backups/bot-20261026-2033.db.gz`.
+- Запуск смоуков: `ssh vps4 "cd ~/todobot && docker compose exec -T
+  todobot python -" < deploy/smoke_rituals.py` (сначала дождаться
+  `curl -sf https://todo.alxforbot.online/health`).
+- Не проверено живьём: первая настоящая сводка (вт 27.10, 9:30, если
+  будет что решать) и доход `?ritual=` из кнопки в Telegram.
 
 ## Блокеры и риски
 
 - Александр не проверяет руками: приёмка — тесты и смоук на проде.
-  Выкатка для задачи «ритуал» разрешена.
 - Из аудита открыто: `USER` в Dockerfile, healthcheck, `dp.errors`, тихие
   `except`, закрепление версий, статистика 2.5 с (три запроса подряд).
 
 ## Следующий точный шаг
 
-1. Этап 1 `RITUAL-PLAN.md` — настройки ритуалов (миграция `settings`,
-   `GET/PATCH /api/settings`, раздел «Ритуалы» в мини-аппе).
-2. Cron бэкапа — после 04:30 27.10.
+1. После 9:30 27.10: `ssh vps4 "cd ~/todobot && docker compose logs
+   --since 12h | grep -i ritual"` — сводка ушла один раз или `skipped`;
+   при открытии кнопки в логе nginx `GET /?ritual=morning`
+   (`grep 'ritual=' /var/log/nginx/access.log`).
+2. Cron бэкапа 04:30 — `ls /root/todobot/backups` (должен появиться
+   снимок `bot-20261027-0430.db.gz`).
+3. Если всё ок — закрыть HANDOFF.
 
 ## Rollback
 
-Этап 0: `git revert 5b568b8 baa20e4 9465ca6`, push, на vps4
-`git pull && docker compose up -d --build` и `deploy/deploy-front.sh front`.
-Схема БД не менялась. Откат этапов A–D — в `HANDOFF-archive.md`.
+`git revert` коммитов `9465ca6..a56a836`, push, на vps4
+`git pull && docker compose up -d --build`, `deploy/deploy-front.sh front`.
+Новые колонки и `ritual_runs` старый код не трогает; полный откат БД —
+`gunzip` снимка `bot-20261026-2033.db.gz` в `data/bot.db` при
+остановленном контейнере. Откат этапов A–D — в `HANDOFF-archive.md`.
