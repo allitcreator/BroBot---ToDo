@@ -81,6 +81,18 @@ export function getPlan(): Promise<Plan> {
   return call("GET", "/api/ritual/plan");
 }
 
+export type Evening = {
+  today_open: RitualTask[];
+  done_today: number;
+  tomorrow: RitualTask[];
+  tomorrow_events: { time: string | null; title: string }[] | null;
+  inbox_count: number;
+};
+
+export function getEvening(): Promise<Evening> {
+  return call("GET", "/api/ritual/evening");
+}
+
 export function ritualDone(kind: "morning" | "evening"): Promise<{ ok: true }> {
   return call("POST", `/api/ritual/${kind}/done`);
 }

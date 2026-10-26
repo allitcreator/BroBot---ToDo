@@ -4,6 +4,7 @@ import { InboxScreen } from "./screens/InboxScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { TodayScreen } from "./screens/TodayScreen";
+import { RitualEvening } from "./screens/RitualEvening";
 import { RitualMorning } from "./screens/RitualMorning";
 import { WeekScreen } from "./screens/WeekScreen";
 
@@ -54,6 +55,13 @@ export default function App() {
     return (
       <main>
         <RitualMorning onClose={closeRitual} />
+      </main>
+    );
+  }
+  if (ritual === "evening") {
+    return (
+      <main>
+        <RitualEvening settings={settings} onClose={closeRitual} />
       </main>
     );
   }

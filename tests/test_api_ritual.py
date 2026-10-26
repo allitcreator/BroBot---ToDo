@@ -156,3 +156,27 @@ def test_медиана_закрытий():
     assert rituals.median_per_day([3, 7, 5]) == 5
     assert rituals.median_per_day([2, 4]) == 3
     assert rituals.median_per_day([]) is None
+
+
+def test_вечер_открытые_сделанные_и_завтра(loop, client, tasks, monkeypatch):
+    today = config.local_today()
+    tasks.append({"id": "tom", "title": "Забрать посылку", "createdDateTime": _created(1),
+                  "dueDateTime": _due(today + timedelta(days=1))})
+
+    async def completed_since(day):
+        assert day == today
+        return [{"id": "c1"}, {"id": "c2"}, {"id": "c3"}]
+
+    async def events_day(day):
+        assert day == today + timedelta(days=1)
+        return [{"id": "e1", "summary": "Планёрка", "start": {"dateTime": f"{day}T10:00:00+03:00"}}]
+
+    monkeypatch.setattr(ms_todo, "get_completed_since", completed_since)
+    monkeypatch.setattr(google_calendar, "get_events_day", events_day)
+    status, data = _get(loop, client, "/api/ritual/evening")
+    assert status == 200
+    assert [t["title"] for t in data["today_open"]] == ["На сегодня", "Созвон"]
+    assert data["done_today"] == 3
+    assert [t["title"] for t in data["tomorrow"]] == ["Забрать посылку"]
+    assert data["tomorrow_events"] == [{"time": "10:00", "title": "Планёрка"}]
+    assert data["inbox_count"] == 2  # «Свежая» и застрявшая «Давняя» — обе без даты

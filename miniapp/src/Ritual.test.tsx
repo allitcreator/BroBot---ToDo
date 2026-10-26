@@ -12,6 +12,7 @@ vi.mock("./api", async (orig) => {
     getInbox: vi.fn(), scheduleTask: vi.fn(), deleteTask: vi.fn(), getToday: vi.fn(), getWeek: vi.fn(),
     getSummary: vi.fn(), completeTask: vi.fn(), moveTasks: vi.fn(), getSettings: vi.fn(), getTaskTime: vi.fn(),
     getMorning: vi.fn(), getPlan: vi.fn(), ritualDone: vi.fn(), moveKeys: vi.fn(),
+    getEvening: vi.fn(), getStats: vi.fn(),
   };
 });
 vi.mock("./telegram", () => ({
@@ -163,5 +164,95 @@ describe("Утренний разбор", () => {
     await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     expect(await screen.findByRole("tablist")).toBeInTheDocument();
     expect(api.ritualDone).not.toHaveBeenCalled();
+  });
+});
+
+
+const evening: api.Evening = {
+  today_open: [
+    t("e1", "Оплатить интернет", { date: iso(0) }),
+    t("e2", "Статья про индексы", { date: iso(0) }),
+    t("e3", "Позвонить в сервис", { date: iso(0), reminder: true }),
+  ],
+  done_today: 3,
+  tomorrow: [t("n1", "Забрать посылку", { date: iso(1) })],
+  tomorrow_events: [{ time: "10:00", title: "Планёрка" }],
+  inbox_count: 2,
+};
+
+describe("Вечернее закрытие", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/?ritual=evening");
+    vi.mocked(api.getEvening).mockResolvedValue(structuredClone(evening));
+    vi.mocked(api.completeTask).mockResolvedValue({ ok: true });
+    vi.mocked(api.moveKeys).mockResolvedValue({ moved: 2, total: 2, failed: [] });
+    vi.mocked(api.getTaskTime).mockResolvedValue({ time: "15:00" });
+    vi.mocked(api.getStats).mockResolvedValue({
+      completed_today: 4, created_today: 1, open_tasks: 10, overdue: 0, inbox: 2,
+      week: [3, 4, 2, 5, 3, 2, 4].map((n, i) => ({ date: iso(i - 6), completed: n })),
+    });
+  });
+
+  async function markDone() {
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Что успел?" })).toBeInTheDocument();
+    expect(screen.getByText("Сделано 3 из 6")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Оплатить интернет" }));
+    await userEvent.click(screen.getByRole("button", { name: "Дальше" }));
+  }
+
+  it("отмеченное закрывается пачкой по «Дальше», а не по тапу", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Что успел?" });
+    await userEvent.click(screen.getByRole("checkbox", { name: "Оплатить интернет" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Статья про индексы" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Статья про индексы" }));
+    expect(api.completeTask).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Дальше" }));
+    expect(api.completeTask).toHaveBeenCalledTimes(1);
+    expect(api.completeTask).toHaveBeenCalledWith("e1");
+    expect(await screen.findByRole("heading", { name: "Остальное — на завтра?" })).toBeInTheDocument();
+  });
+
+  it("остальное на завтра одной кнопкой, время спрашивается у задачи с 🔔", async () => {
+    await markDone();
+    expect(screen.queryByText("Оплатить интернет")).not.toBeInTheDocument();
+    expect(screen.getByText("Планёрка")).toBeInTheDocument();
+    expect(screen.getByText("Забрать посылку")).toBeInTheDocument();
+    expect(screen.getByText(/Во входящих 2/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть день" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Время: Позвонить в сервис")).toHaveValue("15:00"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Перенести" }));
+
+    await waitFor(() => expect(api.moveKeys).toHaveBeenCalledWith(["e2", "e3"], iso(1), { e3: "15:00" }));
+    expect(await screen.findByRole("heading", { name: "День закрыт" })).toBeInTheDocument();
+    expect(screen.getByText(/Сделано 4 · перенесено 2/)).toBeInTheDocument();
+    expect(screen.getByText(/За неделю закрыто 23/)).toBeInTheDocument();
+  });
+
+  it("день можно поменять у любой задачи", async () => {
+    await markDone();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "День: Статья про индексы" }), iso(2));
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть день" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Перенести" }));
+    await waitFor(() => expect(api.moveKeys).toHaveBeenCalledWith(["e2"], iso(2)));
+    expect(api.moveKeys).toHaveBeenCalledWith(["e3"], iso(1), expect.anything());
+  });
+
+  it("«Готово» отмечает ритуал и возвращает в приложение", async () => {
+    await markDone();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть день" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Перенести" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Готово" }));
+    expect(api.ritualDone).toHaveBeenCalledWith("evening");
+    expect(await screen.findByRole("tablist")).toBeInTheDocument();
+  });
+
+  it("всё сделано — сразу итог", async () => {
+    vi.mocked(api.getEvening).mockResolvedValue({ ...structuredClone(evening), today_open: [] });
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "День закрыт" })).toBeInTheDocument();
   });
 });
