@@ -58,7 +58,7 @@ SYSTEM_PROMPT = """Ты ассистент, который парсит текс
 """
 
 
-async def parse_task(text: str, today: str | None = None) -> dict:
+async def parse_task(text: str, today: str | None = None, default_today: bool = True) -> dict:
     if today is None:
         today = config.local_today().isoformat()
 
@@ -81,9 +81,9 @@ async def parse_task(text: str, today: str | None = None) -> dict:
     raw = response.choices[0].message.content
     data = json.loads(raw)
 
-    # Написанное руками без даты — на сегодня. Во входящие идут только
-    # форварды, и они через parse_task не проходят.
-    if not data.get("due_date"):
+    # Написанное руками без даты — на сегодня. Комментарий к форварду без
+    # даты (default_today=False) остаётся без неё и уходит во входящие.
+    if default_today and not data.get("due_date"):
         data["due_date"] = today
 
     return data

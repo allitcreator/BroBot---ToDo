@@ -1,8 +1,9 @@
 """Входящие — это пересланное.
 
-Написанное руками — задача: дата из текста, без даты — сегодня. Любой
-форвард, с комментарием или без, ложится во входящие без срока и
-разбирается в мини-аппе; дата из комментария не учитывается.
+Написанное руками — задача: дата из текста, без даты — сегодня. Форвард
+без комментария или с комментарием без даты ложится во входящие и
+разбирается в мини-аппе. Комментарий с датой («посмотреть сегодня») —
+обычная задача на эту дату, пост уходит в заметку.
 """
 import asyncio
 import json
@@ -101,6 +102,12 @@ def test_без_даты_задача_на_сегодня(monkeypatch):
     assert task["due_date"] == "2026-10-26"
 
 
+def test_для_комментария_дата_не_подставляется(monkeypatch):
+    _fake_llm(monkeypatch, {"title": "глянуть", "due_date": None, "due_time": None})
+    task = run(llm.parse_task("глянуть", today="2026-10-26", default_today=False))
+    assert task["due_date"] is None
+
+
 def test_явная_дата_сохраняется(monkeypatch):
     _fake_llm(monkeypatch, {"title": "позвонить", "due_date": "2026-10-27", "due_time": None})
     task = run(llm.parse_task("завтра позвонить", today="2026-10-26"))
@@ -147,10 +154,28 @@ def _capture_create(monkeypatch):
 
 def _no_llm(monkeypatch):
     async def boom(*a, **kw):
-        raise AssertionError("для форварда LLM не нужен")
+        raise AssertionError("для форварда без комментария LLM не нужен")
 
     monkeypatch.setattr(llm, "classify_message", boom)
     monkeypatch.setattr(llm, "parse_task", boom)
+
+
+def _comment_parse(monkeypatch, due_date=None, title=None, fail=False):
+    """parse_task для комментария: возвращает дату или None, классификатор не нужен."""
+    seen = []
+
+    async def fake_parse(text, today=None, default_today=True):
+        seen.append(default_today)
+        if fail:
+            raise RuntimeError("openrouter down")
+        return {"title": title or text, "due_date": due_date, "due_time": None}
+
+    async def no_classify(*a, **kw):
+        raise AssertionError("комментарий к форварду не классифицируется")
+
+    monkeypatch.setattr(llm, "parse_task", fake_parse)
+    monkeypatch.setattr(llm, "classify_message", no_classify)
+    return seen
 
 
 def _fwd(text):
@@ -196,10 +221,10 @@ def test_форвард_без_текста_получает_заглушку(mo
     assert created[0]["title"] == "Пересланное сообщение"
 
 
-def test_комментарий_и_форвард_одна_задача_во_входящих(monkeypatch, fast):
+def test_комментарий_без_даты_и_форвард_во_входящие(monkeypatch, fast):
     created = _capture_create(monkeypatch)
-    _no_llm(monkeypatch)
-    comment = FakeMessage("прочитать завтра про индексы")
+    seen = _comment_parse(monkeypatch, due_date=None)
+    comment = FakeMessage("прочитать про индексы")
     forward = _fwd("Статья про индексы")
 
     async def scenario():
@@ -210,15 +235,58 @@ def test_комментарий_и_форвард_одна_задача_во_в�
 
     run(scenario())
 
+    assert seen == [False], "сегодня по умолчанию для комментария не подставляем"
     assert len(created) == 1
-    assert created[0]["title"] == "прочитать завтра про индексы"
-    assert created[0]["due_date"] is None, "дата из комментария не учитывается"
+    assert created[0]["title"] == "прочитать про индексы"
+    assert created[0]["due_date"] is None
     assert "Статья про индексы" in created[0]["description"]
+
+
+def test_комментарий_с_датой_задача_на_эту_дату(monkeypatch, fast):
+    created = _capture_create(monkeypatch)
+    today = config.local_today().isoformat()
+    _comment_parse(monkeypatch, due_date=today, title="Посмотреть это сообщение")
+    monkeypatch.setattr(storage, "get_confirm_mode", _async("off"))
+    comment = FakeMessage("Посмотреть это сообщение сегодня")
+    forward = _fwd("у меня лежит, трафик ушёл на другие сервера")
+
+    async def scenario():
+        await asyncio.gather(
+            messages._handle_new_task(comment),
+            _later(0.01, messages._handle_new_task(forward)),
+        )
+
+    run(scenario())
+
+    assert len(created) == 1
+    assert created[0]["due_date"] == today
+    assert created[0]["title"] == "Посмотреть это сообщение"
+    assert "трафик ушёл" in created[0]["description"]
+    replies = comment.answers + forward.answers
+    assert not any("входящие" in r for r in replies)
+    assert any("Задача создана" in r for r in replies)
+
+
+def test_сбой_llm_на_комментарии_не_теряет_форвард(monkeypatch, fast):
+    created = _capture_create(monkeypatch)
+    _comment_parse(monkeypatch, fail=True)
+
+    async def scenario():
+        await asyncio.gather(
+            messages._handle_new_task(FakeMessage("глянуть сегодня")),
+            _later(0.01, messages._handle_new_task(_fwd("Пост"))),
+        )
+
+    run(scenario())
+
+    assert len(created) == 1
+    assert created[0]["due_date"] is None
+    assert created[0]["title"] == "глянуть сегодня"
 
 
 def test_форвард_раньше_комментария(monkeypatch, fast):
     created = _capture_create(monkeypatch)
-    _no_llm(monkeypatch)
+    _comment_parse(monkeypatch)
 
     async def scenario():
         await asyncio.gather(
@@ -248,7 +316,7 @@ def test_несколько_форвардов_без_комментария_о�
 
 def test_несколько_форвардов_с_комментарием_одна_задача(monkeypatch, fast):
     created = _capture_create(monkeypatch)
-    _no_llm(monkeypatch)
+    _comment_parse(monkeypatch)
 
     async def scenario():
         await asyncio.gather(

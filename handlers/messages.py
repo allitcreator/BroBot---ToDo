@@ -204,6 +204,22 @@ async def _collect_forward(message: Message):
 
 
 async def _save_forward_batch(batch: _ForwardBatch):
+    # Комментарий с датой («посмотреть сегодня») — обычная задача на эту
+    # дату, посты в заметке. Без даты или при сбое LLM — во входящие:
+    # форвард важнее точной даты, терять его нельзя.
+    if batch.comment:
+        try:
+            task = await llm.parse_task(batch.comment, default_today=False)
+        except Exception:
+            logger.warning("inbox: комментарий к форварду не разобран", exc_info=True)
+            task = {}
+        if task.get("due_date"):
+            notes = [desc for _, desc in batch.forwards if desc]
+            task["description"] = "\n\n———\n\n".join(notes) or None
+            task["source_text"] = batch.comment
+            await _create_task_and_ask_calendar(batch.reply_to, task)
+            return
+
     if batch.comment:
         notes = [desc for _, desc in batch.forwards if desc]
         title = _short_title(batch.comment) or "Пересланное сообщение"
