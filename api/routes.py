@@ -84,6 +84,104 @@ async def get_inbox(request: web.Request) -> web.Response:
     return web.json_response({"count": len(items), "items": items})
 
 
+async def _serialize(tasks: list[dict]) -> list[dict]:
+    """Задачи в вид для мини-аппа: ключ, название, заметка, дата и значки."""
+    ids = [t["id"] for t in tasks]
+    with_reminder = await storage.get_task_ids_with_any_reminder(ids)
+    in_calendar = await storage.get_task_ids_in_calendar(ids)
+    out = []
+    for t in tasks:
+        out.append({
+            "key": await storage.register_task_id(t["id"]),
+            "title": t.get("title") or "",
+            "note": _note(t),
+            "date": ms_todo.task_local_date(t),
+            "reminder": t["id"] in with_reminder or bool(t.get("isReminderOn")),
+            "calendar": t["id"] in in_calendar,
+        })
+    return out
+
+
+def _by_date(tasks: list[dict]) -> list[dict]:
+    return sorted(tasks, key=lambda t: (ms_todo.task_local_date(t) or "", t.get("createdDateTime") or ""))
+
+
+async def get_tasks(request: web.Request) -> web.Response:
+    view = request.query.get("view")
+    today = config.local_today()
+    tasks = await ms_todo.get_all_tasks()
+    dated = [(ms_todo.task_local_date(t), t) for t in tasks]
+
+    if view == "today":
+        overdue = [t for d, t in dated if d and d < today.isoformat()]
+        todays = [t for d, t in dated if d == today.isoformat()]
+        return web.json_response({
+            "overdue": await _serialize(_by_date(overdue)),
+            "today": await _serialize(_by_date(todays)),
+        })
+
+    if view == "week":
+        days = []
+        for i in range(7):
+            day = (today + timedelta(days=i)).isoformat()
+            items = [t for d, t in dated if d == day]
+            days.append({"date": day, "items": await _serialize(_by_date(items))})
+        return web.json_response({"days": days})
+
+    return web.json_response({"error": "bad_view", "message": "view: today или week"}, status=400)
+
+
+async def get_summary(request: web.Request) -> web.Response:
+    """Счётчики для вкладок — из одного (закэшированного) списка задач."""
+    today = config.local_today().isoformat()
+    dates = [ms_todo.task_local_date(t) for t in await ms_todo.get_all_tasks()]
+    return web.json_response({
+        "inbox": sum(1 for d in dates if d is None),
+        "today": sum(1 for d in dates if d == today),
+        "overdue": sum(1 for d in dates if d and d < today),
+    })
+
+
+async def complete_task(request: web.Request) -> web.Response:
+    task_id = await _task_id_or_404(request)
+    await ms_todo.complete_task(task_id)
+    await task_ops.cleanup_task_extras(task_id)
+    return web.json_response({"ok": True})
+
+
+async def move_tasks(request: web.Request) -> web.Response:
+    """Массовый перенос: просроченные или сегодняшние — на сегодня или завтра.
+
+    Сбой на одной задаче не останавливает остальные: в ответе итог
+    «перенесено X из Y» и названия тех, что не удалось.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    scope, to = body.get("scope"), body.get("to")
+    if scope not in ("overdue", "today") or to not in ("today", "tomorrow") or (scope, to) == ("today", "today"):
+        return web.json_response({"error": "bad_move", "message": "scope: overdue|today, to: today|tomorrow"}, status=400)
+
+    today = config.local_today()
+    target = (today + timedelta(days=1 if to == "tomorrow" else 0)).isoformat()
+    tasks = await ms_todo.get_all_tasks()
+    if scope == "overdue":
+        chosen = [t for t in tasks if (d := ms_todo.task_local_date(t)) and d < today.isoformat()]
+    else:
+        chosen = [t for t in tasks if ms_todo.task_local_date(t) == today.isoformat()]
+
+    moved, failed = 0, []
+    for t in chosen:
+        try:
+            await ms_todo.update_task(t["id"], due_date=target)
+            moved += 1
+        except Exception:
+            logger.warning("mini-app move: %s", t["id"], exc_info=True)
+            failed.append(t.get("title") or "")
+    return web.json_response({"moved": moved, "total": len(chosen), "failed": failed})
+
+
 async def _task_id_or_404(request: web.Request) -> str:
     task_id = await storage.resolve_task_id(request.match_info["key"])
     if not task_id:
@@ -131,5 +229,9 @@ def setup(app: web.Application) -> None:
     app.middlewares.append(auth_middleware)
     app.router.add_get("/health", health)
     app.router.add_get("/api/inbox", get_inbox)
+    app.router.add_get("/api/tasks", get_tasks)
+    app.router.add_get("/api/summary", get_summary)
+    app.router.add_post("/api/tasks/move", move_tasks)
+    app.router.add_post("/api/tasks/{key}/complete", complete_task)
     app.router.add_post("/api/tasks/{key}/schedule", schedule_task)
     app.router.add_delete("/api/tasks/{key}", delete_task)

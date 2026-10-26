@@ -1,1 +1,1 @@
-{"root":["./src/app.test.tsx","./src/app.tsx","./src/api.ts","./src/main.tsx","./src/telegram.ts","./src/test-setup.ts"],"version":"5.9.3"}
+{"root":["./src/app.test.tsx","./src/app.tsx","./src/api.ts","./src/format.ts","./src/hooks.ts","./src/main.tsx","./src/telegram.ts","./src/test-setup.ts","./src/components/status.tsx","./src/components/taskcard.tsx","./src/screens/inboxscreen.tsx","./src/screens/todayscreen.tsx","./src/screens/weekscreen.tsx"],"version":"5.9.3"}

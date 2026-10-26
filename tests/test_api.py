@@ -222,3 +222,134 @@ def test_кривой_формат_подписи_это_отказ_а_не_па
 
 def test_подпись_живёт_не_больше_двух_часов():
     assert auth.MAX_AUTH_AGE_SECONDS <= 2 * 60 * 60
+
+
+# --- «Сегодня», «Неделя», счётчики ---
+
+def _due(day):
+    """Срок, как его отдаёт Graph: только дата, полночь UTC."""
+    return {"dateTime": f"{day.isoformat()}T00:00:00.0000000", "timeZone": "UTC"}
+
+
+def _open_tasks(monkeypatch, tasks):
+    async def fake_all(list_id=None):
+        return tasks
+
+    monkeypatch.setattr(ms_todo, "get_all_tasks", fake_all)
+
+
+def _sample(today):
+    return [
+        {"id": "over", "title": "Просрочка", "dueDateTime": _due(today - timedelta(days=2))},
+        {"id": "tod", "title": "Сегодняшняя", "dueDateTime": _due(today)},
+        {"id": "tom", "title": "Завтрашняя", "dueDateTime": _due(today + timedelta(days=1))},
+        {"id": "far", "title": "Через месяц", "dueDateTime": _due(today + timedelta(days=30))},
+        {"id": "inb", "title": "Во входящих"},
+    ]
+
+
+def test_сегодня_отдельно_от_просроченных(loop, client, monkeypatch):
+    today = config.local_today()
+    _open_tasks(monkeypatch, _sample(today))
+    resp = loop.run_until_complete(client.get("/api/tasks?view=today", headers=_auth()))
+    assert resp.status == 200
+    data = loop.run_until_complete(resp.json())
+    assert [t["title"] for t in data["overdue"]] == ["Просрочка"]
+    assert [t["title"] for t in data["today"]] == ["Сегодняшняя"]
+    assert data["overdue"][0]["date"] == (today - timedelta(days=2)).isoformat()
+
+
+def test_неделя_по_дням(loop, client, monkeypatch):
+    today = config.local_today()
+    _open_tasks(monkeypatch, _sample(today))
+    resp = loop.run_until_complete(client.get("/api/tasks?view=week", headers=_auth()))
+    data = loop.run_until_complete(resp.json())
+    days = data["days"]
+    assert [d["date"] for d in days] == [(today + timedelta(days=i)).isoformat() for i in range(7)]
+    assert [t["title"] for t in days[0]["items"]] == ["Сегодняшняя"]
+    assert [t["title"] for t in days[1]["items"]] == ["Завтрашняя"]
+    assert all("Через месяц" not in [t["title"] for t in d["items"]] for d in days)
+
+
+def test_значки_напоминания_и_календаря(loop, client, monkeypatch):
+    today = config.local_today()
+    _open_tasks(monkeypatch, [{"id": "tod", "title": "С напоминанием", "dueDateTime": _due(today)}])
+    loop.run_until_complete(storage.save_calendar_link("tod", "ev-1"))
+    resp = loop.run_until_complete(client.get("/api/tasks?view=today", headers=_auth()))
+    item = loop.run_until_complete(resp.json())["today"][0]
+    assert item["calendar"] is True
+    assert item["reminder"] is False
+
+
+def test_неизвестный_срез_400(loop, client):
+    resp = loop.run_until_complete(client.get("/api/tasks?view=month", headers=_auth()))
+    assert resp.status == 400
+
+
+def test_счётчики_для_вкладок(loop, client, monkeypatch):
+    _open_tasks(monkeypatch, _sample(config.local_today()))
+    resp = loop.run_until_complete(client.get("/api/summary", headers=_auth()))
+    assert loop.run_until_complete(resp.json()) == {"inbox": 1, "today": 1, "overdue": 1}
+
+
+def test_выполнено_чистит_хвосты(loop, client, monkeypatch):
+    done, cleaned = [], []
+
+    async def fake_complete(task_id, list_id=None):
+        done.append(task_id)
+
+    async def fake_cleanup(task_id):
+        cleaned.append(task_id)
+
+    monkeypatch.setattr(ms_todo, "complete_task", fake_complete)
+    monkeypatch.setattr(task_ops, "cleanup_task_extras", fake_cleanup)
+    key = _register(loop, "ms-done")
+    resp = loop.run_until_complete(client.post(f"/api/tasks/{key}/complete", headers=_auth()))
+    assert resp.status == 200
+    assert done == ["ms-done"] and cleaned == ["ms-done"]
+
+
+def test_массовый_перенос_просроченных_с_итогом(loop, client, monkeypatch):
+    today = config.local_today()
+    _open_tasks(monkeypatch, [
+        {"id": "o1", "title": "Первая", "dueDateTime": _due(today - timedelta(days=1))},
+        {"id": "o2", "title": "Вторая", "dueDateTime": _due(today - timedelta(days=3))},
+        {"id": "t1", "title": "Сегодняшняя", "dueDateTime": _due(today)},
+    ])
+    moved = []
+
+    async def fake_update(task_id, title=None, due_date=None, list_id=None):
+        if task_id == "o2":
+            raise Exception("MS Graph 429")
+        moved.append((task_id, due_date))
+
+    monkeypatch.setattr(ms_todo, "update_task", fake_update)
+    resp = loop.run_until_complete(
+        client.post("/api/tasks/move", json={"scope": "overdue", "to": "today"}, headers=_auth())
+    )
+    data = loop.run_until_complete(resp.json())
+    assert moved == [("o1", today.isoformat())]
+    assert data == {"moved": 1, "total": 2, "failed": ["Вторая"]}
+
+
+def test_массовый_перенос_сегодняшних_на_завтра(loop, client, monkeypatch):
+    today = config.local_today()
+    _open_tasks(monkeypatch, _sample(today))
+    moved = []
+
+    async def fake_update(task_id, title=None, due_date=None, list_id=None):
+        moved.append((task_id, due_date))
+
+    monkeypatch.setattr(ms_todo, "update_task", fake_update)
+    resp = loop.run_until_complete(
+        client.post("/api/tasks/move", json={"scope": "today", "to": "tomorrow"}, headers=_auth())
+    )
+    assert loop.run_until_complete(resp.json())["moved"] == 1
+    assert moved == [("tod", (today + timedelta(days=1)).isoformat())]
+
+
+def test_массовый_перенос_кривые_параметры(loop, client):
+    resp = loop.run_until_complete(
+        client.post("/api/tasks/move", json={"scope": "all", "to": "today"}, headers=_auth())
+    )
+    assert resp.status == 400

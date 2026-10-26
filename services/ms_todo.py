@@ -336,6 +336,10 @@ def _task_local_date(task: dict) -> str | None:
         return dt_str[:10]
 
 
+# Публичное имя для API мини-аппа: срезы считаются одной функцией и в чате, и там.
+task_local_date = _task_local_date
+
+
 async def get_tasks_today() -> list[dict]:
     today = config.local_today().isoformat()
     tasks = await get_tasks("status ne 'completed'")

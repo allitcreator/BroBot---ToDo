@@ -50,3 +50,28 @@ button.danger { background: transparent; color: var(--danger); }
   border-radius: 8px; border: 1px solid var(--hint); background: var(--bg); color: var(--text);
 }
 button.ghost-text { background: transparent; color: var(--button); }
+
+main { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+
+section { margin-top: 12px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 6px; }
+h2 { font-size: 15px; margin: 0; color: var(--hint); font-weight: 600; text-transform: none; }
+.empty-day { color: var(--hint); margin: 0 0 4px 4px; }
+button.wide { display: block; width: 100%; margin-top: 8px; }
+
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  display: flex; background: var(--card);
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(127, 127, 127, 0.2);
+}
+.tabbar button {
+  flex: 1; background: transparent; color: var(--hint); font-size: 14px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.tabbar button.active { color: var(--button); font-weight: 600; }
+.count {
+  min-width: 20px; padding: 0 6px; border-radius: 10px; font-size: 12px; line-height: 20px;
+  background: var(--hint); color: var(--bg);
+}
+.count.alert { background: var(--danger); color: #fff; }
