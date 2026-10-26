@@ -108,3 +108,19 @@ section.card { margin-top: 10px; }
 .mode input { width: 18px; height: 18px; flex: none; }
 .toggle input { width: 22px; height: 22px; flex: none; }
 .tabbar button { font-size: 13px; padding: 8px 4px; }
+
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; align-items: flex-end;
+  background: rgba(0, 0, 0, 0.4);
+}
+.sheet {
+  width: 100%; max-height: 80vh; overflow-y: auto;
+  background: var(--bg); color: var(--text);
+  border-radius: 14px 14px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+}
+.sheet h2 { margin-bottom: 8px; }
+.time-row { list-style: none; padding: 8px 0; border-bottom: 1px solid rgba(127, 127, 127, 0.2); }
+.time-row label { display: flex; align-items: center; gap: 4px; color: var(--hint); font-size: 14px; }
+.ritual-note { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; background: var(--card); font-size: 14px; }

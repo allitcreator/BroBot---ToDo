@@ -290,6 +290,19 @@ async def get_reminder_by_task(task_id: str) -> dict | None:
     return None
 
 
+async def get_task_reminders(task_id: str) -> list[tuple[int, str]]:
+    """Все напоминания бота по задаче: (id, fire_at в UTC)."""
+    async with _db.execute(
+        "SELECT id, fire_at FROM reminders WHERE task_id = ? ORDER BY fire_at", (task_id,)
+    ) as cursor:
+        return [(r[0], r[1]) for r in await cursor.fetchall()]
+
+
+async def set_reminder_fire_at(reminder_id: int, fire_at_utc: str):
+    await _db.execute("UPDATE reminders SET fire_at = ? WHERE id = ?", (fire_at_utc, reminder_id))
+    await _db.commit()
+
+
 async def delete_telegram_reminder_by_task(task_id: str):
     await _db.execute("DELETE FROM reminders WHERE task_id = ?", (task_id,))
     await _db.commit()

@@ -38,8 +38,21 @@ export function getInbox(): Promise<{ count: number; items: InboxItem[] }> {
   return call("GET", "/api/inbox");
 }
 
-export function scheduleTask(key: string, date: string): Promise<{ ok: true; date: string }> {
-  return call("POST", `/api/tasks/${encodeURIComponent(key)}/schedule`, { date });
+// Что не удалось сдвинуть вместе с задачей: событие или напоминания.
+export type MoveWarning = "calendar" | "reminder";
+
+// time: "ЧЧ:ММ" — новое время напоминаний и события, null — снять их,
+// не передано — то же время в новый день.
+export function scheduleTask(
+  key: string,
+  date: string,
+  time?: string | null,
+): Promise<{ ok: true; date: string; warnings?: MoveWarning[] }> {
+  return call("POST", `/api/tasks/${encodeURIComponent(key)}/schedule`, time === undefined ? { date } : { date, time });
+}
+
+export function getTaskTime(key: string): Promise<{ time: string | null }> {
+  return call("GET", `/api/tasks/${encodeURIComponent(key)}/time`);
 }
 
 export function deleteTask(key: string): Promise<{ ok: true }> {
@@ -56,7 +69,9 @@ export type Task = {
 };
 
 export type Summary = { inbox: number; today: number; overdue: number };
-export type MoveResult = { moved: number; total: number; failed: string[] };
+export type MoveResult = { moved: number; total: number; failed: string[]; warnings?: MoveWarning[] };
+// Время по ключу задачи; ключа нет — то же время.
+export type Times = Record<string, string | null>;
 
 export function getToday(): Promise<{ overdue: Task[]; today: Task[] }> {
   return call("GET", "/api/tasks?view=today");
@@ -74,8 +89,8 @@ export function completeTask(key: string): Promise<{ ok: true }> {
   return call("POST", `/api/tasks/${encodeURIComponent(key)}/complete`);
 }
 
-export function moveTasks(scope: "overdue" | "today", to: "today" | "tomorrow"): Promise<MoveResult> {
-  return call("POST", "/api/tasks/move", { scope, to });
+export function moveTasks(scope: "overdue" | "today", to: "today" | "tomorrow", times?: Times): Promise<MoveResult> {
+  return call("POST", "/api/tasks/move", times ? { scope, to, times } : { scope, to });
 }
 
 export type Settings = { confirm_mode: "all" | "uncertain" | "off"; research_enabled: boolean; projects_enabled: boolean };

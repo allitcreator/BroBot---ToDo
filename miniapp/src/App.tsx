@@ -8,10 +8,15 @@ import { WeekScreen } from "./screens/WeekScreen";
 
 type Tab = "inbox" | "today" | "week" | "projects" | "settings";
 
+// Параметр из кнопки сводки бота (?ritual=morning|evening). Пока экранов
+// ритуала нет — только метка, чтобы проверить, что он доходит из Telegram.
+const ritualParam = () => new URLSearchParams(window.location.search).get("ritual");
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("inbox");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [ritual] = useState(ritualParam);
 
   // Счётчики на вкладках обновляются после каждого действия. Ошибка здесь
   // не важна: экран сам покажет, что не так, а счётчик — подсказка.
@@ -41,6 +46,7 @@ export default function App() {
   return (
     <>
       <main>
+        {ritual && <p className="ritual-note">Получено из кнопки: ritual={ritual}</p>}
         {tab === "inbox" && <InboxScreen onChanged={refreshSummary} />}
         {tab === "today" && <TodayScreen onChanged={refreshSummary} />}
         {tab === "week" && <WeekScreen onChanged={refreshSummary} />}

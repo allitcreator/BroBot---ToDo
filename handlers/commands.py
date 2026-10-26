@@ -1,12 +1,13 @@
 import asyncio
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from datetime import datetime, timedelta
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 import config
 from db import storage
-from services import ms_todo, google_calendar
+from services import ms_todo, google_calendar, task_ops
 from handlers.keyboards import task_actions_kb, settings_kb
 from handlers.utils import build_task_text, build_scheduled_task_text
 from db.storage import register_task_id, save_task_header
@@ -68,6 +69,41 @@ async def cmd_app(message: Message):
         "📥 Разбор входящих — в мини-аппе:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="Открыть", web_app=WebAppInfo(url=config.MINIAPP_URL)),
+        ]]),
+    )
+
+
+RITUALS = ("morning", "evening", "test")
+
+
+def ritual_url(base: str, ritual: str) -> str:
+    """Адрес мини-аппа с ?ritual=…; прочие параметры base сохраняются.
+
+    `startapp` работает только для ссылок t.me/<бот>/<апп>, а у нас
+    web_app-кнопка — поэтому параметр в query.
+    """
+    parts = urlsplit(base)
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k != "ritual"] + [("ritual", ritual)]
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+@router.message(Command("ritual"), user_filter)
+async def cmd_ritual(message: Message, command: CommandObject):
+    """Кнопка ритуала по запросу: проверка, что параметр доходит до мини-аппа.
+
+    Позже — немедленная сводка без ожидания 9:30 и 20:30.
+    """
+    ritual = (command.args or "").strip()
+    if ritual not in RITUALS:
+        await message.answer("Использование: /ritual morning | evening | test")
+        return
+    if not config.MINIAPP_URL:
+        await message.answer("Мини-апп не настроен: в .env нет MINIAPP_URL.")
+        return
+    await message.answer(
+        f"Ритуал: {ritual}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Открыть ↗", web_app=WebAppInfo(url=ritual_url(config.MINIAPP_URL, ritual))),
         ]]),
     )
 
@@ -136,7 +172,7 @@ async def cmd_overdue(message: Message):
 @router.message(Command("today2tomorrow"), user_filter)
 async def cmd_today2tomorrow(message: Message):
     try:
-        moved = await ms_todo.move_today_to_tomorrow()
+        moved = await task_ops.move_today_to_tomorrow()
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return
@@ -150,7 +186,7 @@ async def cmd_today2tomorrow(message: Message):
 @router.message(Command("overdue2today"), user_filter)
 async def cmd_overdue2today(message: Message):
     try:
-        moved = await ms_todo.move_overdue_to_today()
+        moved = await task_ops.move_overdue_to_today()
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         return

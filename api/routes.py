@@ -5,7 +5,7 @@
 коротким текстом; подробности уходят в лог.
 """
 import logging
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from aiohttp import web
 
@@ -108,6 +108,8 @@ def _by_date(tasks: list[dict]) -> list[dict]:
 
 async def get_tasks(request: web.Request) -> web.Response:
     view = request.query.get("view")
+    if view not in ("today", "week"):
+        return web.json_response({"error": "bad_view", "message": "view: today или week"}, status=400)
     today = config.local_today()
     tasks = await ms_todo.get_all_tasks()
     dated = [(ms_todo.task_local_date(t), t) for t in tasks]
@@ -120,15 +122,12 @@ async def get_tasks(request: web.Request) -> web.Response:
             "today": await _serialize(_by_date(todays)),
         })
 
-    if view == "week":
-        days = []
-        for i in range(7):
-            day = (today + timedelta(days=i)).isoformat()
-            items = [t for d, t in dated if d == day]
-            days.append({"date": day, "items": await _serialize(_by_date(items))})
-        return web.json_response({"days": days})
-
-    return web.json_response({"error": "bad_view", "message": "view: today или week"}, status=400)
+    days = []
+    for i in range(7):
+        day = (today + timedelta(days=i)).isoformat()
+        items = [t for d, t in dated if d == day]
+        days.append({"date": day, "items": await _serialize(_by_date(items))})
+    return web.json_response({"days": days})
 
 
 async def get_summary(request: web.Request) -> web.Response:
@@ -164,22 +163,36 @@ async def move_tasks(request: web.Request) -> web.Response:
         return web.json_response({"error": "bad_move", "message": "scope: overdue|today, to: today|tomorrow"}, status=400)
 
     today = config.local_today()
-    target = (today + timedelta(days=1 if to == "tomorrow" else 0)).isoformat()
+    target = today + timedelta(days=1 if to == "tomorrow" else 0)
     tasks = await ms_todo.get_all_tasks()
     if scope == "overdue":
         chosen = [t for t in tasks if (d := ms_todo.task_local_date(t)) and d < today.isoformat()]
     else:
         chosen = [t for t in tasks if ms_todo.task_local_date(t) == today.isoformat()]
 
-    moved, failed = 0, []
+    # Время на задачу: {ключ: "ЧЧ:ММ" | null}. Нет ключа — то же время.
+    raw_times = body.get("times") or {}
+    if not isinstance(raw_times, dict):
+        return web.json_response({"error": "bad_move", "message": "times: {ключ: ЧЧ:ММ или null}"}, status=400)
+    times = {}
+    for key, value in raw_times.items():
+        task_id = await storage.resolve_task_id(key)
+        if not task_id or not _valid_time(value):
+            return web.json_response({"error": "bad_time", "message": "Время: ЧЧ:ММ или null"}, status=400)
+        times[task_id] = value
+
+    moved, failed, warnings = 0, [], set()
     for t in chosen:
         try:
-            await ms_todo.update_task(t["id"], due_date=target)
+            warnings.update(await task_ops.reschedule(t["id"], target, times.get(t["id"], task_ops.KEEP), task=t))
             moved += 1
         except Exception:
             logger.warning("mini-app move: %s", t["id"], exc_info=True)
             failed.append(t.get("title") or "")
-    return web.json_response({"moved": moved, "total": len(chosen), "failed": failed})
+    result = {"moved": moved, "total": len(chosen), "failed": failed}
+    if warnings:
+        result["warnings"] = sorted(warnings)
+    return web.json_response(result)
 
 
 async def _task_id_or_404(request: web.Request) -> str:
@@ -190,6 +203,29 @@ async def _task_id_or_404(request: web.Request) -> str:
             content_type="application/json",
         )
     return task_id
+
+
+def _valid_time(value) -> bool:
+    """null или «ЧЧ:ММ» 00:00–23:59."""
+    if value is None:
+        return True
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return False
+    try:
+        time.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+async def _cached_task(task_id: str) -> dict | None:
+    """Задача из закэшированного списка открытых — без отдельного запроса.
+
+    Мини-апп переносит только открытые задачи, а кэш сбрасывается любой
+    записью, так что задача там есть. Нет — значит, её закрыли или удалили
+    в To Do, и напоминания MS у неё не ищем.
+    """
+    return next((t for t in await ms_todo.get_all_tasks() if t["id"] == task_id), {})
 
 
 def _parse_day(value: str) -> date | None:
@@ -213,8 +249,22 @@ async def schedule_task(request: web.Request) -> web.Response:
     day = _parse_day(str(body.get("date", "")))
     if day is None:
         return web.json_response({"error": "bad_date", "message": "Дата: today, tomorrow или ГГГГ-ММ-ДД"}, status=400)
-    await ms_todo.update_task(task_id, due_date=day.isoformat())
-    return web.json_response({"ok": True, "date": day.isoformat()})
+    # time: "ЧЧ:ММ" — новое время напоминаний и события, null — снять их,
+    # нет поля — то же время в новый день.
+    new_time = body.get("time", task_ops.KEEP)
+    if new_time != task_ops.KEEP and not _valid_time(new_time):
+        return web.json_response({"error": "bad_time", "message": "Время: ЧЧ:ММ или null"}, status=400)
+    warnings = await task_ops.reschedule(task_id, day, new_time, task=await _cached_task(task_id))
+    result = {"ok": True, "date": day.isoformat()}
+    if warnings:
+        result["warnings"] = warnings
+    return web.json_response(result)
+
+
+async def get_task_time(request: web.Request) -> web.Response:
+    """Время задачи для поля при переносе: из события или напоминания."""
+    task_id = await _task_id_or_404(request)
+    return web.json_response({"time": await task_ops.task_time(task_id, task=await _cached_task(task_id))})
 
 
 async def delete_task(request: web.Request) -> web.Response:
@@ -236,5 +286,6 @@ def setup(app: web.Application) -> None:
     app.router.add_post("/api/tasks/move", move_tasks)
     app.router.add_post("/api/tasks/{key}/complete", complete_task)
     app.router.add_post("/api/tasks/{key}/schedule", schedule_task)
+    app.router.add_get("/api/tasks/{key}/time", get_task_time)
     app.router.add_delete("/api/tasks/{key}", delete_task)
     more_routes.setup(app)

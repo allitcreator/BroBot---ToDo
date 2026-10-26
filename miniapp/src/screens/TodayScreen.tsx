@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Task, completeTask, deleteTask, getToday, moveTasks, scheduleTask } from "../api";
+import { Task, Times, completeTask, deleteTask, getToday, moveTasks, scheduleTask } from "../api";
 import { TaskCard } from "../components/TaskCard";
+import { hasTime, reportWarnings, useTimeAsk, warningText } from "../components/TimeSheet";
 import { ErrorView, errorText } from "../components/Status";
 import { badges, dayLabel, localToday } from "../format";
 import { shortTitle, useCardActions } from "../hooks";
@@ -13,6 +14,7 @@ export function TodayScreen({ onChanged }: { onChanged?: () => void }) {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [moving, setMoving] = useState(false);
   const { run, isBusy } = useCardActions(onChanged);
+  const { ask, sheet } = useTimeAsk();
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setState({ kind: "loading" });
@@ -50,15 +52,42 @@ export function TodayScreen({ onChanged }: { onChanged?: () => void }) {
     await act(task, () => deleteTask(task.key));
   };
 
-  const moveAll = async (scope: "overdue" | "today", to: "today" | "tomorrow", count: number) => {
+  // Задача со временем — сначала спрашиваем время на новый день.
+  const schedule = async (task: Task, date: string, label: string) => {
+    if (isBusy(task.key)) return;
+    let time: string | null | undefined;
+    if (hasTime(task)) {
+      const times = await ask([task], label);
+      if (!times) return;
+      time = times[task.key];
+    }
+    await act(task, async () => {
+      const r = time === undefined ? await scheduleTask(task.key, date) : await scheduleTask(task.key, date, time);
+      reportWarnings(r?.warnings);
+    });
+  };
+
+  const moveAll = async (scope: "overdue" | "today", to: "today" | "tomorrow", tasks: Task[]) => {
     if (moving) return;
-    const question = scope === "overdue" ? `Перенести просроченные (${count}) на сегодня?` : `Перенести сегодняшние (${count}) на завтра?`;
-    if (!(await confirm(question))) return;
+    // Окно времени само служит подтверждением; без задач со временем — вопрос.
+    const timed = tasks.filter(hasTime);
+    let times: Times | undefined;
+    if (timed.length) {
+      const answer = await ask(timed, to === "today" ? "Сегодня" : "Завтра");
+      if (!answer) return;
+      times = answer;
+    } else {
+      const question = scope === "overdue" ? `Перенести просроченные (${tasks.length}) на сегодня?` : `Перенести сегодняшние (${tasks.length}) на завтра?`;
+      if (!(await confirm(question))) return;
+    }
     setMoving(true);
     try {
-      const r = await moveTasks(scope, to);
+      const r = times ? await moveTasks(scope, to, times) : await moveTasks(scope, to);
       haptic(r.failed.length ? "error" : "success");
-      if (r.failed.length) alertUser(`Перенесено ${r.moved} из ${r.total}. Не удалось: ${r.failed.join(", ")}`);
+      // Одно окно: второй showAlert, пока открыт первый, Telegram отклоняет.
+      const failed = r.failed.length ? `Перенесено ${r.moved} из ${r.total}. Не удалось: ${r.failed.join(", ")}` : "";
+      const text = [failed, warningText(r.warnings)].filter(Boolean).join("\n\n");
+      if (text) alertUser(text);
       onChanged?.();
       await load(true);
     } catch (e) {
@@ -80,11 +109,11 @@ export function TodayScreen({ onChanged }: { onChanged?: () => void }) {
       actions={[
         { label: "Готово", onClick: () => void act(task, () => completeTask(task.key)) },
         overdue
-          ? { label: "Сегодня", onClick: () => void act(task, () => scheduleTask(task.key, "today")) }
-          : { label: "Завтра", onClick: () => void act(task, () => scheduleTask(task.key, "tomorrow")) },
+          ? { label: "Сегодня", onClick: () => void schedule(task, "today", "Сегодня") }
+          : { label: "Завтра", onClick: () => void schedule(task, "tomorrow", "Завтра") },
         { label: "Удалить", danger: true, onClick: () => void remove(task) },
       ]}
-      onPickDate={(date) => void act(task, () => scheduleTask(task.key, date))}
+      onPickDate={(date) => void schedule(task, date, dayLabel(date, today))}
     />
   );
 
@@ -99,7 +128,7 @@ export function TodayScreen({ onChanged }: { onChanged?: () => void }) {
         <section>
           <div className="section-head">
             <h2>Просрочено · {data.overdue.length}</h2>
-            <button className="ghost-text" disabled={moving} onClick={() => void moveAll("overdue", "today", data.overdue.length)}>
+            <button className="ghost-text" disabled={moving} onClick={() => void moveAll("overdue", "today", data.overdue)}>
               Все на сегодня
             </button>
           </div>
@@ -118,12 +147,13 @@ export function TodayScreen({ onChanged }: { onChanged?: () => void }) {
         ) : (
           <>
             <ul>{data.today.map((t) => card(t, false))}</ul>
-            <button className="ghost-text wide" disabled={moving} onClick={() => void moveAll("today", "tomorrow", data.today.length)}>
+            <button className="ghost-text wide" disabled={moving} onClick={() => void moveAll("today", "tomorrow", data.today)}>
               Перенести все на завтра
             </button>
           </>
         )}
       </section>
+      {sheet}
     </>
   );
 }

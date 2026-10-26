@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Task, completeTask, deleteTask, getWeek, scheduleTask } from "../api";
 import { TaskCard } from "../components/TaskCard";
+import { hasTime, reportWarnings, useTimeAsk } from "../components/TimeSheet";
 import { ErrorView, errorText } from "../components/Status";
 import { badges, dayLabel, localToday } from "../format";
 import { shortTitle, useCardActions } from "../hooks";
@@ -12,6 +13,7 @@ type Load = { kind: "loading" } | { kind: "ready"; days: Day[] } | { kind: "erro
 export function WeekScreen({ onChanged }: { onChanged?: () => void }) {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const { run, isBusy } = useCardActions(onChanged);
+  const { ask, sheet } = useTimeAsk();
 
   const load = useCallback(async () => {
     setState({ kind: "loading" });
@@ -54,6 +56,26 @@ export function WeekScreen({ onChanged }: { onChanged?: () => void }) {
   };
 
   const today = localToday();
+
+  // Задача со временем — сначала спрашиваем время на новый день.
+  const schedule = async (task: Task, date: string) => {
+    if (isBusy(task.key)) return;
+    let time: string | null | undefined;
+    if (hasTime(task)) {
+      const times = await ask([task], dayLabel(date, today));
+      if (!times) return;
+      time = times[task.key];
+    }
+    await act(
+      task,
+      async () => {
+        const r = time === undefined ? await scheduleTask(task.key, date) : await scheduleTask(task.key, date, time);
+        reportWarnings(r?.warnings);
+      },
+      date,
+    );
+  };
+
   const total = days.reduce((n, d) => n + d.items.length, 0);
 
   return (
@@ -82,13 +104,14 @@ export function WeekScreen({ onChanged }: { onChanged?: () => void }) {
                     { label: "Готово", onClick: () => void act(t, () => completeTask(t.key)) },
                     { label: "Удалить", danger: true, onClick: () => void remove(t) },
                   ]}
-                  onPickDate={(date) => void act(t, () => scheduleTask(t.key, date), date)}
+                  onPickDate={(date) => void schedule(t, date)}
                 />
               ))}
             </ul>
           )}
         </section>
       ))}
+      {sheet}
     </>
   );
 }

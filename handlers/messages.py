@@ -8,7 +8,7 @@ from aiogram.types import Message
 import config
 from db import storage
 from db.storage import register_task_id
-from services import llm, ms_todo, google_calendar
+from services import llm, ms_todo, google_calendar, task_ops
 from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb, unclear_kb
 from handlers.utils import format_task_preview, ask_reminder_if_needed, inbox_count_line
 from handlers import project_flow
@@ -561,15 +561,21 @@ async def _handle_edit_task_date(message: Message, state_data: dict):
         if not new_date:
             await message.answer("❌ Не удалось распознать дату")
             return
-        await ms_todo.update_task(task_id, due_date=new_date)
+        # Время задачи — в напоминаниях и событии: назвали время — туда,
+        # не назвали — то же время в новый день.
+        from datetime import date
+        warnings = await task_ops.reschedule(task_id, date.fromisoformat(new_date), parsed.get("due_time") or task_ops.KEEP)
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
         await storage.clear_state(user_id)
         return
 
+    if warnings:
+        what = {"calendar": "событие в календаре", "reminder": "напоминание"}
+        await message.answer(f"⚠️ Дата перенесена, но не сдвинулось: {', '.join(what[w] for w in warnings)}.")
+
     # Обновляем исходное сообщение задачи
     if task_message_id and chat_id and key:
-        from datetime import date
         d = date.fromisoformat(new_date)
         new_date_str = d.strftime("%d.%m.%Y")
         if " — " in current_text:

@@ -156,6 +156,23 @@ async def delete_event(event_id: str):
         resp.raise_for_status()
 
 
+async def update_event(event_id: str, start: datetime, end: datetime):
+    """Переносит событие: start и end — aware datetime."""
+    token = await _get_token()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    body = {
+        "start": {"dateTime": start.isoformat(), "timeZone": config.USER_TIMEZONE},
+        "end": {"dateTime": end.isoformat(), "timeZone": config.USER_TIMEZONE},
+    }
+    url = f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events/{event_id}"
+    client = get_http_client()
+    resp = await client.patch(url, headers=headers, json=body)
+    if resp.status_code == 401:
+        headers["Authorization"] = f"Bearer {await _force_refresh(token)}"
+        resp = await client.patch(url, headers=headers, json=body)
+    resp.raise_for_status()
+
+
 async def get_events_week() -> list[dict]:
     """Получает события на ближайшие 7 дней."""
     token = await _get_token()

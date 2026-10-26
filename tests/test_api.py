@@ -152,6 +152,7 @@ def test_разбор_на_сегодня_и_на_дату(loop, client, monkeyp
         calls.append((task_id, due_date))
 
     monkeypatch.setattr(ms_todo, "update_task", fake_update)
+    _open_tasks(monkeypatch, [{"id": "ms-2", "title": "Задача"}])
     key = _register(loop, "ms-2")
 
     for when, expected in [
@@ -353,3 +354,78 @@ def test_массовый_перенос_кривые_параметры(loop, c
         client.post("/api/tasks/move", json={"scope": "all", "to": "today"}, headers=_auth())
     )
     assert resp.status == 400
+
+
+# --- перенос со временем ---
+
+def _fake_reschedule(monkeypatch, warnings=None):
+    calls = []
+
+    async def fake(task_id, day, new_time=task_ops.KEEP, task=None):
+        calls.append((task_id, day.isoformat(), new_time))
+        return warnings or []
+
+    monkeypatch.setattr(task_ops, "reschedule", fake)
+    return calls
+
+
+def test_перенос_с_новым_временем(loop, client, monkeypatch):
+    _open_tasks(monkeypatch, [{"id": "ms-5", "title": "Позвонить"}])
+    calls = _fake_reschedule(monkeypatch)
+    key = _register(loop, "ms-5")
+    for body, expected in [
+        ({"date": "2026-12-31", "time": "16:00"}, "16:00"),
+        ({"date": "2026-12-31", "time": None}, None),
+        ({"date": "2026-12-31"}, task_ops.KEEP),
+    ]:
+        resp = loop.run_until_complete(client.post(f"/api/tasks/{key}/schedule", json=body, headers=_auth()))
+        assert resp.status == 200, body
+        assert calls[-1] == ("ms-5", "2026-12-31", expected)
+
+
+@pytest.mark.parametrize("bad", ["25:00", "16-00", "утром", 16])
+def test_кривое_время_400(loop, client, monkeypatch, bad):
+    _fake_reschedule(monkeypatch)
+    key = _register(loop, "ms-6")
+    resp = loop.run_until_complete(
+        client.post(f"/api/tasks/{key}/schedule", json={"date": "today", "time": bad}, headers=_auth())
+    )
+    assert resp.status == 400
+
+
+def test_перенос_сообщает_о_сбое_календаря(loop, client, monkeypatch):
+    _open_tasks(monkeypatch, [])
+    _fake_reschedule(monkeypatch, warnings=["calendar"])
+    key = _register(loop, "ms-7")
+    resp = loop.run_until_complete(
+        client.post(f"/api/tasks/{key}/schedule", json={"date": "today", "time": "10:00"}, headers=_auth())
+    )
+    data = loop.run_until_complete(resp.json())
+    assert data["warnings"] == ["calendar"]
+
+
+def test_массовый_перенос_с_временем_по_задачам(loop, client, monkeypatch):
+    today = config.local_today()
+    _open_tasks(monkeypatch, _sample(today))
+    calls = _fake_reschedule(monkeypatch)
+    key_tod = _register(loop, "tod")
+    resp = loop.run_until_complete(client.post(
+        "/api/tasks/move",
+        json={"scope": "today", "to": "tomorrow", "times": {key_tod: "09:00"}},
+        headers=_auth(),
+    ))
+    assert loop.run_until_complete(resp.json())["moved"] == 1
+    assert calls == [("tod", (today + timedelta(days=1)).isoformat(), "09:00")]
+
+
+def test_время_задачи(loop, client, monkeypatch):
+    _open_tasks(monkeypatch, [{"id": "ms-8", "title": "Позвонить"}])
+
+    async def fake_time(task_id, task=None):
+        assert task == {"id": "ms-8", "title": "Позвонить"}, "задача — из кэша, без лишнего запроса"
+        return "15:00"
+
+    monkeypatch.setattr(task_ops, "task_time", fake_time)
+    key = _register(loop, "ms-8")
+    resp = loop.run_until_complete(client.get(f"/api/tasks/{key}/time", headers=_auth()))
+    assert loop.run_until_complete(resp.json()) == {"time": "15:00"}

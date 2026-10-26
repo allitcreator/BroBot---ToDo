@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import * as api from "./api";
 import * as tg from "./telegram";
@@ -11,7 +11,7 @@ vi.mock("./api", async (orig) => {
     ...real,
     getInbox: vi.fn(), scheduleTask: vi.fn(), deleteTask: vi.fn(),
     getToday: vi.fn(), getWeek: vi.fn(), getSummary: vi.fn(), completeTask: vi.fn(), moveTasks: vi.fn(),
-    getSettings: vi.fn(),
+    getSettings: vi.fn(), getTaskTime: vi.fn(),
   };
 });
 vi.mock("./telegram", () => ({
@@ -141,6 +141,22 @@ function iso(offset: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+describe("Параметр ritual", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("из кнопки сводки виден в мини-аппе", async () => {
+    window.history.replaceState(null, "", "/?ritual=test");
+    render(<App />);
+    expect(await screen.findByText(/ritual=test/)).toBeInTheDocument();
+  });
+
+  it("обычный вход — без метки", async () => {
+    render(<App />);
+    await screen.findByText("Статья про индексы");
+    expect(screen.queryByText(/ritual=/)).not.toBeInTheDocument();
+  });
+});
+
 describe("Вкладки", () => {
   it("показывают счётчики и переключают экраны", async () => {
     vi.mocked(api.getToday).mockResolvedValue({ overdue: [], today: [task("t1", "Позвонить", iso(0))] });
@@ -196,10 +212,99 @@ describe("Сегодня", () => {
 
   it("частичный перенос сообщает, что не удалось", async () => {
     vi.mocked(tg.confirm).mockResolvedValue(true);
+    vi.mocked(api.getTaskTime).mockResolvedValue({ time: "15:00" });
     vi.mocked(api.moveTasks).mockResolvedValue({ moved: 1, total: 2, failed: ["Вторая"] });
     await open();
     await userEvent.click(screen.getByRole("button", { name: "Перенести все на завтра" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Перенести" }));
     await waitFor(() => expect(tg.alertUser).toHaveBeenCalledWith(expect.stringContaining("Перенесено 1 из 2")));
+  });
+});
+
+describe("Перенос задачи со временем", () => {
+  beforeEach(() => {
+    vi.mocked(api.getToday).mockResolvedValue({
+      overdue: [],
+      today: [task("t1", "Позвонить", iso(0), { reminder: true }), task("t2", "Купить молоко", iso(0))],
+    });
+    vi.mocked(api.getTaskTime).mockResolvedValue({ time: "15:00" });
+    vi.mocked(api.scheduleTask).mockResolvedValue({ ok: true, date: iso(1) });
+    vi.mocked(api.moveTasks).mockResolvedValue({ moved: 2, total: 2, failed: [] });
+  });
+
+  async function open() {
+    render(<App />);
+    await userEvent.click(await screen.findByRole("tab", { name: /Сегодня/ }));
+    await screen.findByText("Позвонить");
+  }
+
+  const card = (title: string) => screen.getByText(title, { selector: ".title" }).closest("li")!;
+
+  it("спрашивает время, подставив старое, и переносит с новым", async () => {
+    await open();
+    await userEvent.click(within(card("Позвонить")).getByRole("button", { name: "Завтра" }));
+
+    const input = await screen.findByLabelText("Время: Позвонить");
+    await waitFor(() => expect(input).toHaveValue("15:00"));
+    expect(api.scheduleTask).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "16:30" } });
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
+
+    expect(api.scheduleTask).toHaveBeenCalledWith("t1", "tomorrow", "16:30");
+  });
+
+  it("«Без времени» переносит и снимает время", async () => {
+    await open();
+    await userEvent.click(within(card("Позвонить")).getByRole("button", { name: "Завтра" }));
+    await userEvent.click(await screen.findByLabelText("Без времени: Позвонить"));
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
+
+    expect(api.scheduleTask).toHaveBeenCalledWith("t1", "tomorrow", null);
+  });
+
+  it("отмена ничего не переносит", async () => {
+    await open();
+    await userEvent.click(within(card("Позвонить")).getByRole("button", { name: "Завтра" }));
+    await screen.findByLabelText("Время: Позвонить");
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+
+    expect(api.scheduleTask).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("Позвонить")).toBeInTheDocument();
+  });
+
+  it("задачу без времени переносит без вопроса", async () => {
+    await open();
+    await userEvent.click(within(card("Купить молоко")).getByRole("button", { name: "Завтра" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.scheduleTask).toHaveBeenCalledWith("t2", "tomorrow");
+  });
+
+  it("массовый перенос спрашивает время только у задач со временем", async () => {
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Перенести все на завтра" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Позвонить")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Купить молоко")).not.toBeInTheDocument();
+    const input = within(dialog).getByLabelText("Время: Позвонить");
+    await waitFor(() => expect(input).toHaveValue("15:00"));
+    fireEvent.change(input, { target: { value: "09:00" } });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Перенести" }));
+
+    expect(tg.confirm).not.toHaveBeenCalled();
+    expect(api.moveTasks).toHaveBeenCalledWith("today", "tomorrow", { t1: "09:00" });
+  });
+
+  it("сбой календаря — перенос прошёл, человек предупреждён", async () => {
+    vi.mocked(api.scheduleTask).mockResolvedValue({ ok: true, date: iso(1), warnings: ["calendar"] });
+    await open();
+    await userEvent.click(within(card("Позвонить")).getByRole("button", { name: "Завтра" }));
+    await screen.findByLabelText("Время: Позвонить");
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
+
+    await waitFor(() => expect(tg.alertUser).toHaveBeenCalledWith(expect.stringContaining("календар")));
   });
 });
 
@@ -223,5 +328,26 @@ describe("Неделя", () => {
     const sections = screen.getAllByRole("heading", { level: 2 });
     const target = sections[3].closest("section")!;
     expect(within(target).getByText("Отчёт")).toBeInTheDocument();
+  });
+
+  it("перенос задачи со временем спрашивает время", async () => {
+    vi.mocked(api.getWeek).mockResolvedValue({
+      days: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+        date: iso(i), items: i === 1 ? [task("w2", "Созвон", iso(1), { calendar: true })] : [],
+      })),
+    });
+    vi.mocked(api.getTaskTime).mockResolvedValue({ time: "11:00" });
+    vi.mocked(api.scheduleTask).mockResolvedValue({ ok: true, date: iso(3) });
+    render(<App />);
+    await userEvent.click(await screen.findByRole("tab", { name: /Неделя/ }));
+    const card = (await screen.findByText("Созвон")).closest("li")!;
+    await userEvent.click(within(card).getByRole("button", { name: "Дата" }));
+    fireEvent.change(within(card).getByLabelText("Выбрать дату"), { target: { value: iso(3) } });
+    await userEvent.click(within(card).getByRole("button", { name: "Перенести" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Время: Созвон")).toHaveValue("11:00"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Перенести" }));
+    expect(api.scheduleTask).toHaveBeenCalledWith("w2", iso(3), "11:00");
   });
 });

@@ -39,7 +39,7 @@ async def cb_inbox_schedule(callback: CallbackQuery):
 
     day = config.local_today() + timedelta(days=1 if when == "tomorrow" else 0)
     try:
-        await ms_todo.update_task(task_id, due_date=day.isoformat())
+        await task_ops.reschedule(task_id, day)
     except Exception as e:
         await callback.answer(f"Не получилось: {e}"[:200], show_alert=True)
         return
