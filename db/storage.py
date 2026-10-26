@@ -87,6 +87,26 @@ async def init_db():
     except Exception:
         pass  # column already exists
 
+    # Migrate: настройки утреннего и вечернего ритуалов
+    for column, sql_type, default in _RITUAL_COLUMNS:
+        try:
+            await _db.execute(f"ALTER TABLE settings ADD COLUMN {column} {sql_type} NOT NULL DEFAULT {default!r}")
+            await _db.commit()
+        except Exception:
+            pass  # column already exists
+
+
+# Ритуалы разбора: колонка, тип, значение по умолчанию. Булевы — 0/1.
+_RITUAL_COLUMNS = (
+    ("morning_enabled", "INTEGER", 1),
+    ("morning_time", "TEXT", "09:30"),
+    ("evening_enabled", "INTEGER", 1),
+    ("evening_time", "TEXT", "20:30"),
+    ("stuck_days", "INTEGER", 14),
+    ("weekend_rituals", "INTEGER", 0),
+)
+_RITUAL_BOOLS = {"morning_enabled", "evening_enabled", "weekend_rituals"}
+
 
 async def close_db():
     if _db:
@@ -144,6 +164,32 @@ async def set_confirm_mode(user_id: int, mode: str):
         "INSERT INTO settings (user_id, confirm_mode) VALUES (?, ?) "
         "ON CONFLICT(user_id) DO UPDATE SET confirm_mode = excluded.confirm_mode",
         (user_id, mode),
+    )
+    await _db.commit()
+
+
+async def get_ritual_settings(user_id: int) -> dict:
+    """Настройки ритуалов; строки ещё нет — значения по умолчанию."""
+    columns = [c for c, _, _ in _RITUAL_COLUMNS]
+    async with _db.execute(
+        f"SELECT {', '.join(columns)} FROM settings WHERE user_id = ?", (user_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    values = row or [d for _, _, d in _RITUAL_COLUMNS]
+    return {c: bool(v) if c in _RITUAL_BOOLS else v for c, v in zip(columns, values)}
+
+
+async def set_ritual_settings(user_id: int, changes: dict):
+    """Меняет только переданные поля; имена — из _RITUAL_COLUMNS."""
+    allowed = {c for c, _, _ in _RITUAL_COLUMNS}
+    if not changes or set(changes) - allowed:
+        raise ValueError(f"unknown ritual settings: {set(changes) - allowed}")
+    columns = list(changes)
+    values = [int(changes[c]) if c in _RITUAL_BOOLS else changes[c] for c in columns]
+    await _db.execute(
+        f"INSERT INTO settings (user_id, {', '.join(columns)}) VALUES (?, {', '.join('?' for _ in columns)}) "
+        f"ON CONFLICT(user_id) DO UPDATE SET {', '.join(f'{c} = excluded.{c}' for c in columns)}",
+        (user_id, *values),
     )
     await _db.commit()
 

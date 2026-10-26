@@ -9,6 +9,10 @@ const MODES: { value: Settings["confirm_mode"]; label: string; hint: string }[] 
   { value: "off", label: "Никогда", hint: "задачи создаются сразу" },
 ];
 
+// Сводки проверяются по получасам.
+const TIMES = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+const STUCK_DAYS: Settings["stuck_days"][] = [7, 14, 30];
+
 type Props = { settings: Settings | null; onSettings: (s: Settings) => void };
 
 export function SettingsScreen({ settings, onSettings }: Props) {
@@ -85,6 +89,63 @@ export function SettingsScreen({ settings, onSettings }: Props) {
           </section>
 
           <section className="card">
+            <div className="section-head">
+              <h2>Ритуалы</h2>
+            </div>
+            <Toggle
+              label="Утренний разбор"
+              hint="сводка в чат, если есть что решать"
+              checked={settings.morning_enabled}
+              disabled={saving}
+              onChange={(v) => void change({ morning_enabled: v })}
+            />
+            <TimeSelect
+              label="Время утренней сводки"
+              value={settings.morning_time}
+              disabled={saving || !settings.morning_enabled}
+              onChange={(v) => void change({ morning_time: v })}
+            />
+            <Toggle
+              label="Вечернее закрытие"
+              hint="если на сегодня остались незакрытые задачи"
+              checked={settings.evening_enabled}
+              disabled={saving}
+              onChange={(v) => void change({ evening_enabled: v })}
+            />
+            <TimeSelect
+              label="Время вечерней сводки"
+              value={settings.evening_time}
+              disabled={saving || !settings.evening_enabled}
+              onChange={(v) => void change({ evening_time: v })}
+            />
+            <label className="toggle">
+              <span>
+                «Застряло» — старше
+                <small>показывать до 3 за утро</small>
+              </span>
+              <select
+                aria-label="Застряло: порог в днях"
+                value={settings.stuck_days}
+                disabled={saving}
+                onChange={(e) => void change({ stuck_days: Number(e.target.value) as Settings["stuck_days"] })}
+              >
+                {STUCK_DAYS.map((d) => (
+                  <option key={d} value={d}>
+                    {d} дней
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Toggle
+              label="Сводки в выходные"
+              hint="в сб и вс задач в 4 раза меньше"
+              checked={settings.weekend_rituals}
+              disabled={saving}
+              onChange={(v) => void change({ weekend_rituals: v })}
+            />
+          </section>
+
+          <section className="card">
             <Toggle
               label="Разбор идей в проекты"
               hint="идею бот разбирает вопросами и заводит проектом"
@@ -114,6 +175,21 @@ function Toggle({ label, hint, checked, disabled, onChange }: { label: string; h
         <small>{hint}</small>
       </span>
       <input type="checkbox" role="checkbox" aria-label={label} checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  );
+}
+
+function TimeSelect({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  return (
+    <label className="toggle sub">
+      <span>Время</span>
+      <select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        {TIMES.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

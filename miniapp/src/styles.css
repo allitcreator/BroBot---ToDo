@@ -126,3 +126,8 @@ section.card { margin-top: 10px; }
 .time-row label { display: flex; align-items: center; gap: 6px; color: var(--hint); font-size: 14px; white-space: nowrap; }
 .time-row label input { width: 18px; height: 18px; margin: 0; }
 .ritual-note { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; background: var(--card); font-size: 14px; }
+.toggle select {
+  flex: none; padding: 6px 8px; font-size: 15px;
+  border-radius: 8px; border: 1px solid var(--hint); background: var(--bg); color: var(--text);
+}
+.toggle.sub { padding-left: 16px; color: var(--hint); }

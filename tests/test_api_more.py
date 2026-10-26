@@ -35,7 +35,12 @@ def _send(loop, client, method, path, body=None):
 def test_настройки_по_умолчанию(loop, client):
     status, data = _get(loop, client, "/api/settings")
     assert status == 200
-    assert data == {"confirm_mode": "all", "research_enabled": True, "projects_enabled": True}
+    assert data == {
+        "confirm_mode": "all", "research_enabled": True, "projects_enabled": True,
+        "morning_enabled": True, "morning_time": "09:30",
+        "evening_enabled": True, "evening_time": "20:30",
+        "stuck_days": 14, "weekend_rituals": False,
+    }
 
 
 def test_настройки_меняются_и_видны_чату(loop, client):
@@ -47,7 +52,28 @@ def test_настройки_меняются_и_видны_чату(loop, client
     assert loop.run_until_complete(storage.get_projects_enabled(OWNER)) is True
 
 
-@pytest.mark.parametrize("body", [{"confirm_mode": "sometimes"}, {"research_enabled": "yes"}, {"color": "red"}, {}])
+def test_настройки_ритуалов_меняются_и_переживают_рестарт(loop, client):
+    changes = {"morning_time": "08:00", "evening_enabled": False, "stuck_days": 7, "weekend_rituals": True}
+    status, data = _send(loop, client, "PATCH", "/api/settings", changes)
+    assert status == 200
+    assert {k: data[k] for k in changes} == changes
+    assert data["morning_enabled"] is True and data["evening_time"] == "20:30"
+
+    loop.run_until_complete(storage.close_db())
+    loop.run_until_complete(storage.init_db())
+    status, data = _get(loop, client, "/api/settings")
+    assert {k: data[k] for k in changes} == changes
+
+
+def test_ритуалы_читаются_одним_словарём(loop, client):
+    _send(loop, client, "PATCH", "/api/settings", {"evening_time": "21:00"})
+    rituals = loop.run_until_complete(storage.get_ritual_settings(OWNER))
+    assert rituals["evening_time"] == "21:00" and rituals["morning_time"] == "09:30"
+
+
+@pytest.mark.parametrize("body", [{"confirm_mode": "sometimes"}, {"research_enabled": "yes"}, {"color": "red"}, {},
+    {"morning_time": "9:30"}, {"morning_time": "09:15"}, {"evening_time": "24:00"},
+    {"stuck_days": 10}, {"stuck_days": "14"}, {"morning_enabled": 1}, {"weekend_rituals": None}])
 def test_кривые_настройки_400(loop, client, body):
     status, _ = _send(loop, client, "PATCH", "/api/settings", body)
     assert status == 400

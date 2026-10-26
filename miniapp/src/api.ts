@@ -93,7 +93,18 @@ export function moveTasks(scope: "overdue" | "today", to: "today" | "tomorrow", 
   return call("POST", "/api/tasks/move", times ? { scope, to, times } : { scope, to });
 }
 
-export type Settings = { confirm_mode: "all" | "uncertain" | "off"; research_enabled: boolean; projects_enabled: boolean };
+export type Settings = {
+  confirm_mode: "all" | "uncertain" | "off";
+  research_enabled: boolean;
+  projects_enabled: boolean;
+  // Ритуалы разбора: время «ЧЧ:00» или «ЧЧ:30» по Москве.
+  morning_enabled: boolean;
+  morning_time: string;
+  evening_enabled: boolean;
+  evening_time: string;
+  stuck_days: 7 | 14 | 30;
+  weekend_rituals: boolean;
+};
 export type Stats = {
   completed_today: number;
   created_today: number;

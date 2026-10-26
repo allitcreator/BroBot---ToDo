@@ -34,12 +34,26 @@ def _json_error(status: int, code: str, message: str) -> web.Response:
 
 # --- настройки ---
 
+RITUAL_FLAGS = ("morning_enabled", "evening_enabled", "weekend_rituals")
+RITUAL_TIMES = ("morning_time", "evening_time")
+STUCK_DAYS = (7, 14, 30)
+
+
+def _valid_ritual_time(value) -> bool:
+    """«ЧЧ:ММ» с шагом 30 минут: сводка проверяется по получасам."""
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return False
+    hh, mm = value[:2], value[3:]
+    return hh.isdigit() and mm in ("00", "30") and int(hh) < 24
+
+
 async def _settings() -> dict:
     uid = config.TELEGRAM_USER_ID
     return {
         "confirm_mode": await storage.get_confirm_mode(uid),
         "research_enabled": await storage.get_research_enabled(uid),
         "projects_enabled": await storage.get_projects_enabled(uid),
+        **await storage.get_ritual_settings(uid),
     }
 
 
@@ -52,14 +66,19 @@ async def patch_settings(request: web.Request) -> web.Response:
         body = await request.json()
     except ValueError:
         body = None
-    allowed = {"confirm_mode", "research_enabled", "projects_enabled"}
+    allowed = {"confirm_mode", "research_enabled", "projects_enabled", *RITUAL_FLAGS, *RITUAL_TIMES, "stuck_days"}
     if not isinstance(body, dict) or not body or set(body) - allowed:
         return _json_error(400, "bad_settings", f"Можно менять: {', '.join(sorted(allowed))}")
     if "confirm_mode" in body and body["confirm_mode"] not in CONFIRM_MODES:
         return _json_error(400, "bad_settings", f"confirm_mode: {', '.join(CONFIRM_MODES)}")
-    for flag in ("research_enabled", "projects_enabled"):
+    for flag in ("research_enabled", "projects_enabled", *RITUAL_FLAGS):
         if flag in body and not isinstance(body[flag], bool):
             return _json_error(400, "bad_settings", f"{flag}: true или false")
+    for field in RITUAL_TIMES:
+        if field in body and not _valid_ritual_time(body[field]):
+            return _json_error(400, "bad_settings", f"{field}: ЧЧ:00 или ЧЧ:30")
+    if "stuck_days" in body and (type(body["stuck_days"]) is not int or body["stuck_days"] not in STUCK_DAYS):
+        return _json_error(400, "bad_settings", f"stuck_days: {', '.join(map(str, STUCK_DAYS))}")
 
     uid = config.TELEGRAM_USER_ID
     if "confirm_mode" in body:
@@ -68,6 +87,9 @@ async def patch_settings(request: web.Request) -> web.Response:
         await storage.set_research_enabled(uid, body["research_enabled"])
     if "projects_enabled" in body:
         await storage.set_projects_enabled(uid, body["projects_enabled"])
+    rituals = {k: v for k, v in body.items() if k in (*RITUAL_FLAGS, *RITUAL_TIMES, "stuck_days")}
+    if rituals:
+        await storage.set_ritual_settings(uid, rituals)
     return web.json_response(await _settings())
 
 

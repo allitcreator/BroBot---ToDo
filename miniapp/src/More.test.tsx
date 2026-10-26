@@ -18,7 +18,11 @@ vi.mock("./telegram", () => ({
   confirm: vi.fn(), alertUser: vi.fn(), haptic: vi.fn(), initData: () => "", ready: () => undefined,
 }));
 
-const settings: api.Settings = { confirm_mode: "uncertain", research_enabled: true, projects_enabled: true };
+const settings: api.Settings = {
+  confirm_mode: "uncertain", research_enabled: true, projects_enabled: true,
+  morning_enabled: true, morning_time: "09:30", evening_enabled: true, evening_time: "20:30",
+  stuck_days: 14, weekend_rituals: false,
+};
 
 const project: api.Project = {
   title: "TeamNeedsBot",
@@ -155,6 +159,31 @@ describe("Настройки и статистика", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Никогда" }));
     expect(api.patchSettings).toHaveBeenCalledWith({ confirm_mode: "off" });
     await waitFor(() => expect(screen.getByRole("radio", { name: "Никогда" })).toBeChecked());
+  });
+
+  it("время утренней сводки меняется", async () => {
+    vi.mocked(api.patchSettings).mockResolvedValue({ ...settings, morning_time: "08:00" });
+    await openSettings();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Время утренней сводки" }), "08:00");
+    expect(api.patchSettings).toHaveBeenCalledWith({ morning_time: "08:00" });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Время утренней сводки" })).toHaveValue("08:00"));
+  });
+
+  it("выключенный вечер — время не выбрать", async () => {
+    vi.mocked(api.patchSettings).mockResolvedValue({ ...settings, evening_enabled: false });
+    await openSettings();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Вечернее закрытие/ }));
+    expect(api.patchSettings).toHaveBeenCalledWith({ evening_enabled: false });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Время вечерней сводки" })).toBeDisabled());
+  });
+
+  it("порог «застряло» и выходные", async () => {
+    vi.mocked(api.patchSettings).mockResolvedValue({ ...settings, stuck_days: 30 });
+    await openSettings();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: /Застряло/ }), "30");
+    expect(api.patchSettings).toHaveBeenCalledWith({ stuck_days: 30 });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Сводки в выходные/ }));
+    expect(api.patchSettings).toHaveBeenLastCalledWith({ weekend_rituals: true });
   });
 
   it("выключение проектов убирает вкладку", async () => {

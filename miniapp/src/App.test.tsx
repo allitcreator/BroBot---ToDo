@@ -28,7 +28,11 @@ const items = [
 ];
 
 beforeEach(() => {
-  vi.mocked(api.getSettings).mockResolvedValue({ confirm_mode: "all", research_enabled: true, projects_enabled: true });
+  vi.mocked(api.getSettings).mockResolvedValue({
+    confirm_mode: "all", research_enabled: true, projects_enabled: true,
+    morning_enabled: true, morning_time: "09:30", evening_enabled: true, evening_time: "20:30",
+    stuck_days: 14, weekend_rituals: false,
+  });
   vi.mocked(api.getSummary).mockResolvedValue({ inbox: 2, today: 1, overdue: 1 });
   vi.mocked(api.getInbox).mockResolvedValue({ count: items.length, items });
   vi.mocked(api.scheduleTask).mockResolvedValue({ ok: true, date: "2026-10-26" });
