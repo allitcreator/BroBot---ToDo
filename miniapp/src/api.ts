@@ -77,3 +77,59 @@ export function completeTask(key: string): Promise<{ ok: true }> {
 export function moveTasks(scope: "overdue" | "today", to: "today" | "tomorrow"): Promise<MoveResult> {
   return call("POST", "/api/tasks/move", { scope, to });
 }
+
+export type Settings = { confirm_mode: "all" | "uncertain" | "off"; research_enabled: boolean; projects_enabled: boolean };
+export type Stats = {
+  completed_today: number;
+  created_today: number;
+  open_tasks: number;
+  overdue: number;
+  inbox: number;
+  week: { date: string; completed: number }[];
+};
+export type ProjectItem = { key: string; title: string; summary: string };
+export type ResearchJob = { status: "idle" | "running" | "done" | "error"; message?: string };
+export type Project = {
+  title: string;
+  sections: { key: string; title: string; value: string }[];
+  steps: { id: string; text: string; checked: boolean }[];
+  body_valid: boolean;
+  research_enabled: boolean;
+  research: ResearchJob;
+};
+
+export function getSettings(): Promise<Settings> {
+  return call("GET", "/api/settings");
+}
+
+export function patchSettings(changes: Partial<Settings>): Promise<Settings> {
+  return call("PATCH", "/api/settings", changes);
+}
+
+export function getStats(): Promise<Stats> {
+  return call("GET", "/api/stats");
+}
+
+export function getProjects(): Promise<{ items: ProjectItem[] }> {
+  return call("GET", "/api/projects");
+}
+
+export function getProject(key: string): Promise<Project> {
+  return call("GET", `/api/projects/${encodeURIComponent(key)}`);
+}
+
+export function toggleStep(key: string, item: string, checked: boolean): Promise<{ ok: true }> {
+  return call("PATCH", `/api/projects/${encodeURIComponent(key)}/steps/${encodeURIComponent(item)}`, { checked });
+}
+
+export function appendSection(key: string, section: string, text: string): Promise<{ ok: true }> {
+  return call("POST", `/api/projects/${encodeURIComponent(key)}/sections/${encodeURIComponent(section)}`, { text });
+}
+
+export function startResearch(key: string): Promise<ResearchJob> {
+  return call("POST", `/api/projects/${encodeURIComponent(key)}/research`);
+}
+
+export function researchStatus(key: string): Promise<ResearchJob> {
+  return call("GET", `/api/projects/${encodeURIComponent(key)}/research`);
+}

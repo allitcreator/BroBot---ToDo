@@ -171,7 +171,7 @@ async def get_project(task_id: str) -> dict:
         "brief": brief,
         "body_valid": body_is_valid(body),
         "steps": [
-            {"text": i.get("displayName", ""), "checked": bool(i.get("isChecked"))}
+            {"id": i.get("id"), "text": i.get("displayName", ""), "checked": bool(i.get("isChecked"))}
             for i in items
         ],
     }

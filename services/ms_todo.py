@@ -96,6 +96,7 @@ async def _force_refresh(stale_token: str) -> str:
 # мини-апп и команды чата дёргают одни и те же срезы. Любая запись через
 # бота сбрасывает кэш целиком; правки из приложения To Do видны не позже TTL.
 CACHE_TTL = 60.0
+MAX_PAGES = 5
 _tasks_cache: dict[tuple, tuple[float, list[dict]]] = {}
 
 
@@ -182,6 +183,12 @@ async def add_checklist_item(task_id: str, text: str, list_id: str | None = None
         "POST",
         f"{_task_path(task_id, list_id)}/checklistItems",
         json={"displayName": text, "isChecked": False},
+    )
+
+
+async def update_checklist_item(task_id: str, item_id: str, checked: bool, list_id: str | None = None):
+    await _request(
+        "PATCH", f"{_task_path(task_id, list_id)}/checklistItems/{item_id}", json={"isChecked": checked},
     )
 
 
@@ -312,7 +319,15 @@ async def get_tasks(odata_filter: str | None = None, list_id: str | None = None)
     if cached and time.monotonic() - cached[0] < CACHE_TTL:
         return list(cached[1])
     data = await _request("GET", _list_path(list_id), params=params)
-    tasks = data.get("value", [])
+    tasks = list(data.get("value", []))
+    # Страницы по 100: без nextLink всё после сотой задачи терялось молча.
+    # Потолок — чтобы случайный фильтр без условия не читал всю историю.
+    for _ in range(MAX_PAGES - 1):
+        next_link = data.get("@odata.nextLink")
+        if not next_link:
+            break
+        data = await _request("GET", next_link.removeprefix(GRAPH_URL))
+        tasks.extend(data.get("value", []))
     _tasks_cache[cache_key] = (time.monotonic(), tasks)
     return list(tasks)
 
@@ -369,27 +384,48 @@ async def get_overdue_tasks() -> list[dict]:
     return [t for t in tasks if (d := local_date(t)) is not None and d < today]
 
 
+def _local_midnight_utc(day: date) -> str:
+    """Полночь локального дня в UTC — в формате, который принимает $filter Graph."""
+    local = datetime.combine(day, datetime.min.time(), ZoneInfo(config.USER_TIMEZONE))
+    return local.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _local_date_of_utc(dt_str: str) -> str | None:
+    try:
+        dt = datetime.fromisoformat(dt_str.split(".")[0].rstrip("Z")).replace(tzinfo=ZoneInfo("UTC"))
+    except ValueError:
+        return None
+    return dt.astimezone(ZoneInfo(config.USER_TIMEZONE)).date().isoformat()
+
+
 async def get_stats() -> dict:
-    today = config.local_today().isoformat()
+    """Счётчики для /stats и мини-аппа.
 
-    # Два отдельных запроса чтобы не упираться в $top=100
+    Завершённые берутся фильтром за последние 7 дней, а не всей историей:
+    в списке 1500+ завершённых, полное чтение — 16 страниц и ~27 с.
+    """
+    today = config.local_today()
+    week_start = today - timedelta(days=6)
+
     open_tasks_list = await get_tasks("status ne 'completed'")
-    completed_list = await get_tasks("status eq 'completed'")
-
-    open_tasks = len(open_tasks_list)
-    overdue = sum(1 for t in open_tasks_list if (d := _task_local_date(t)) and d < today)
-    created_today = sum(
-        1 for t in open_tasks_list + completed_list
-        if (t.get("createdDateTime") or "")[:10] == today
+    completed_week = await get_tasks(
+        f"completedDateTime/dateTime ge '{_local_midnight_utc(week_start)}'"
     )
-    completed_today = sum(
-        1 for t in completed_list
-        if ((t.get("completedDateTime") or {}).get("dateTime", ""))[:10] == today
-    )
+    created_today_list = await get_tasks(f"createdDateTime ge {_local_midnight_utc(today)}Z")
 
+    by_day = {(week_start + timedelta(days=i)).isoformat(): 0 for i in range(7)}
+    for t in completed_week:
+        d = _local_date_of_utc((t.get("completedDateTime") or {}).get("dateTime", ""))
+        if d in by_day:
+            by_day[d] += 1
+
+    today_iso = today.isoformat()
+    dates = [_task_local_date(t) for t in open_tasks_list]
     return {
-        "completed_today": completed_today,
-        "created_today": created_today,
-        "open_tasks": open_tasks,
-        "overdue": overdue,
+        "completed_today": by_day[today_iso],
+        "created_today": len(created_today_list),
+        "open_tasks": len(open_tasks_list),
+        "overdue": sum(1 for d in dates if d and d < today_iso),
+        "inbox": sum(1 for d in dates if d is None),
+        "week": [{"date": d, "completed": n} for d, n in by_day.items()],
     }

@@ -262,7 +262,9 @@ async def cmd_stats(message: Message):
         f"✅ Выполнено сегодня: {s['completed_today']}\n"
         f"🆕 Создано сегодня: {s['created_today']}\n"
         f"📋 Открытых задач: {s['open_tasks']}\n"
-        f"⚠️ Просрочено: {s['overdue']}"
+        f"📥 Во входящих: {s['inbox']}\n"
+        f"⚠️ Просрочено: {s['overdue']}\n"
+        f"За 7 дней выполнено: {sum(d['completed'] for d in s['week'])}"
     )
 
 

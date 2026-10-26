@@ -225,6 +225,8 @@ async def delete_task(request: web.Request) -> web.Response:
 
 
 def setup(app: web.Application) -> None:
+    from api import more_routes
+
     app.middlewares.append(error_middleware)
     app.middlewares.append(auth_middleware)
     app.router.add_get("/health", health)
@@ -235,3 +237,4 @@ def setup(app: web.Application) -> None:
     app.router.add_post("/api/tasks/{key}/complete", complete_task)
     app.router.add_post("/api/tasks/{key}/schedule", schedule_task)
     app.router.add_delete("/api/tasks/{key}", delete_task)
+    more_routes.setup(app)

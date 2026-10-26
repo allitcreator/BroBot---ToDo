@@ -11,6 +11,7 @@ vi.mock("./api", async (orig) => {
     ...real,
     getInbox: vi.fn(), scheduleTask: vi.fn(), deleteTask: vi.fn(),
     getToday: vi.fn(), getWeek: vi.fn(), getSummary: vi.fn(), completeTask: vi.fn(), moveTasks: vi.fn(),
+    getSettings: vi.fn(),
   };
 });
 vi.mock("./telegram", () => ({
@@ -27,6 +28,7 @@ const items = [
 ];
 
 beforeEach(() => {
+  vi.mocked(api.getSettings).mockResolvedValue({ confirm_mode: "all", research_enabled: true, projects_enabled: true });
   vi.mocked(api.getSummary).mockResolvedValue({ inbox: 2, today: 1, overdue: 1 });
   vi.mocked(api.getInbox).mockResolvedValue({ count: items.length, items });
   vi.mocked(api.scheduleTask).mockResolvedValue({ ok: true, date: "2026-10-26" });
