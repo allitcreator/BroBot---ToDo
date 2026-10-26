@@ -49,7 +49,7 @@ button.wide { display: block; width: 100%; margin-top: 10px; text-align: center;
 button.primary { padding: 14px; font-size: 16px; font-weight: 600; border-radius: 12px; margin-top: 18px; }
 
 /* --- верх «Сегодня»: ритуалы и входящие --- */
-.pills { display: flex; gap: 8px; margin-bottom: 8px; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .pills button { font-size: 14px; padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
 .inbox-line {
   display: flex; justify-content: space-between; width: 100%;
@@ -70,9 +70,12 @@ ul { list-style: none; padding: 0; margin: 0; }
 .row.open { padding-bottom: 12px; }
 .cb, .cb-space { width: 20px; height: 20px; flex: none; margin-top: 2px; }
 .cb {
-  padding: 0; border-radius: 6px; background: transparent;
+  position: relative; padding: 0; border-radius: 6px; background: transparent;
   border: 1.5px solid var(--hint); opacity: 0.8;
 }
+/* Зона нажатия больше самого квадрата: палец промахивается по 20 px. */
+.cb::before { content: ""; position: absolute; inset: -12px; }
+.row-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .cb:active { background: var(--accent); border-color: var(--accent); }
 .row-body { flex: 1; min-width: 0; }
 .row-main.tappable { cursor: pointer; }
@@ -141,7 +144,7 @@ ul { list-style: none; padding: 0; margin: 0; }
   padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15px;
 }
 .set small { display: block; color: var(--hint); font-size: 12px; }
-.set.sub { padding-left: 16px; color: var(--hint); }
+.set.indent { padding-left: 16px; color: var(--hint); }
 .set select {
   flex: none; padding: 5px 8px; font: inherit; font-size: 15px; color: var(--hint);
   border: 0; border-radius: 8px; background: var(--fill);

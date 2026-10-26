@@ -175,7 +175,7 @@ function Toggle({ label, hint, checked, disabled, onChange }: { label: string; h
 
 function TimeSelect({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
   return (
-    <label className="set sub">
+    <label className="set indent">
       <span>Время</span>
       <select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
         {TIMES.map((t) => (

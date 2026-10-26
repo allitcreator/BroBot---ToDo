@@ -40,6 +40,20 @@ beforeEach(() => {
 });
 
 describe("Строки задач", () => {
+  it("чекбокс назван по задаче", async () => {
+    render(<App />);
+    expect(await screen.findByRole("button", { name: /^Готово: Посмотреть статус заявки/ })).toBeInTheDocument();
+  });
+
+  it("строка раскрывается с клавиатуры", async () => {
+    render(<App />);
+    const row = await screen.findByRole("button", { name: /Посмотреть статус заявки/, expanded: false });
+    row.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(within(row.closest("li")!).getByRole("button", { name: "Завтра" })).toBeInTheDocument();
+  });
+
   it("ссылка в названии — короткая метка, открывается по нажатию", async () => {
     render(<App />);
     const chip = await screen.findByRole("link", { name: /SALARY-634569/ });
@@ -64,7 +78,7 @@ describe("Строки задач", () => {
     render(<App />);
     await screen.findByText(/Посмотреть статус заявки/);
     const row = screen.getByText(/Посмотреть статус заявки/).closest("li")!;
-    await userEvent.click(within(row).getByRole("button", { name: "Готово" }));
+    await userEvent.click(within(row).getByRole("button", { name: /^Готово/ }));
     expect(api.completeTask).toHaveBeenCalledWith("t1");
     await waitFor(() => expect(screen.queryByText(/Посмотреть статус заявки/)).not.toBeInTheDocument());
   });
@@ -73,5 +87,27 @@ describe("Строки задач", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: /Сегодня/ })).toBeInTheDocument();
     expect(screen.getByText(/2 задачи/)).toBeInTheDocument();
+  });
+});
+
+describe("Метки ссылок", () => {
+  it.each([
+    ["см. https://st.example.ru/SALARY-1?", "https://st.example.ru/SALARY-1", "SALARY-1"],
+    ["https://st.example.ru/SALARY-2#comment-5 глянуть", "https://st.example.ru/SALARY-2#comment-5", "SALARY-2"],
+    ["вот: https://st.example.ru/SALARY-3?focus=1!", "https://st.example.ru/SALARY-3?focus=1", "SALARY-3"],
+    ["«https://wiki.example.ru/page»", "https://wiki.example.ru/page", "wiki.example.ru"],
+    ["(https://ru.wikipedia.org/wiki/A_(b))", "https://ru.wikipedia.org/wiki/A_(b)", "ru.wikipedia.org"],
+  ])("%s", async (text, href, label) => {
+    vi.mocked(api.getToday).mockResolvedValue({ overdue: [], today: [task("t9", text)] });
+    render(<App />);
+    const link = await screen.findByRole("link", { name: new RegExp(label.replace(/\./g, "\\.")) });
+    expect(link).toHaveAttribute("href", href);
+  });
+
+  it("две ссылки в одном названии", async () => {
+    vi.mocked(api.getToday).mockResolvedValue({ overdue: [], today: [task("t9", "https://a.ru/X-1 и https://b.ru/Y-2")] });
+    render(<App />);
+    expect(await screen.findByRole("link", { name: /X-1/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Y-2/ })).toBeInTheDocument();
   });
 });

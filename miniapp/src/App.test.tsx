@@ -224,7 +224,7 @@ describe("Сегодня", () => {
     await open();
     const callsBefore = vi.mocked(api.getSummary).mock.calls.length;
     const card = screen.getByText("Позвонить").closest("li")!;
-    await userEvent.click(within(card).getByRole("button", { name: "Готово" }));
+    await userEvent.click(within(card).getByRole("button", { name: /^Готово/ }));
 
     expect(api.completeTask).toHaveBeenCalledWith("t1");
     await waitFor(() => expect(screen.queryByText("Позвонить")).not.toBeInTheDocument());

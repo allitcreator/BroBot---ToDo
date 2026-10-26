@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { KeyboardEvent, useState } from "react";
 import { Title } from "./Title";
 
 // quiet — второстепенное действие («Пропустить»): тихая ссылка под сеткой.
@@ -90,9 +90,24 @@ export function TaskCard({ title, note, meta, disabled, actions, onPickDate, onD
 
   return (
     <li className={shown ? "row open" : "row"}>
-      {onDone ? <button className="cb" aria-label="Готово" disabled={disabled} onClick={onDone} /> : <span className="cb-space" />}
+      {onDone ? <button className="cb" aria-label={`Готово: ${title}`} disabled={disabled} onClick={onDone} /> : <span className="cb-space" />}
       <div className="row-body">
-        <div className={open ? "row-main" : "row-main tappable"} onClick={open ? undefined : () => setExpanded((v) => !v)}>
+        <div
+          className={open ? "row-main" : "row-main tappable"}
+          {...(open
+            ? {}
+            : {
+                role: "button",
+                tabIndex: 0,
+                "aria-expanded": expanded,
+                onClick: () => setExpanded((v) => !v),
+                onKeyDown: (e: KeyboardEvent) => {
+                  if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+                  e.preventDefault();
+                  setExpanded((v) => !v);
+                },
+              })}
+        >
           <div className="title">
             <Title text={title} />
           </div>
