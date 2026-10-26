@@ -12,13 +12,31 @@ import config
 from api import routes as api_routes
 from db import storage
 from handlers import messages, commands, callbacks
+from services import rituals
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
+_ritual_task: asyncio.Task | None = None
+
+
+async def _ritual_tick(bot: Bot):
+    try:
+        # Graph или Telegram могут висеть до таймаута клиента; дольше минуты
+        # проход не держим — следующий тик повторит.
+        await asyncio.wait_for(rituals.tick(bot), 60)
+    except Exception:
+        logging.exception("Ritual tick error")
+
+
 async def _reminder_loop(bot: Bot):
+    global _ritual_task
     while True:
         await asyncio.sleep(30)
+        # Сводки — отдельной задачей: зависший Graph не задерживает
+        # напоминания. Новый проход — только когда прошлый закончился.
+        if _ritual_task is None or _ritual_task.done():
+            _ritual_task = asyncio.create_task(_ritual_tick(bot))
         try:
             due = await storage.get_due_reminders()
             for reminder in due:

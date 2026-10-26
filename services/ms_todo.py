@@ -367,6 +367,11 @@ def _local_date_of_utc(dt_str: str) -> str | None:
     return dt.astimezone(ZoneInfo(config.USER_TIMEZONE)).date().isoformat()
 
 
+async def get_completed_since(day: date) -> list[dict]:
+    """Задачи, закрытые начиная с местной полуночи `day`."""
+    return await get_tasks(f"completedDateTime/dateTime ge '{_local_midnight_utc(day)}'")
+
+
 async def get_stats() -> dict:
     """Счётчики для /stats и мини-аппа.
 

@@ -72,7 +72,7 @@ def test_ритуалы_читаются_одним_словарём(loop, clien
 
 
 @pytest.mark.parametrize("body", [{"confirm_mode": "sometimes"}, {"research_enabled": "yes"}, {"color": "red"}, {},
-    {"morning_time": "9:30"}, {"morning_time": "09:15"}, {"evening_time": "24:00"},
+    {"morning_time": "9:30"}, {"morning_time": "09:15"}, {"morning_time": "０９:30"}, {"morning_time": "²3:00"}, {"evening_time": "24:00"},
     {"stuck_days": 10}, {"stuck_days": "14"}, {"morning_enabled": 1}, {"weekend_rituals": None}])
 def test_кривые_настройки_400(loop, client, body):
     status, _ = _send(loop, client, "PATCH", "/api/settings", body)

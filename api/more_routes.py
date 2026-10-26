@@ -9,6 +9,7 @@
 """
 import asyncio
 import logging
+import re
 from collections import defaultdict
 
 from aiohttp import web
@@ -41,10 +42,8 @@ STUCK_DAYS = (7, 14, 30)
 
 def _valid_ritual_time(value) -> bool:
     """«ЧЧ:ММ» с шагом 30 минут: сводка проверяется по получасам."""
-    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
-        return False
-    hh, mm = value[:2], value[3:]
-    return hh.isdigit() and mm in ("00", "30") and int(hh) < 24
+    # Только ASCII-цифры: isdigit() пропускает «０９» и «²».
+    return isinstance(value, str) and re.fullmatch(r"([01]\d|2[0-3]):(00|30)", value, re.ASCII) is not None
 
 
 async def _settings() -> dict:

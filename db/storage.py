@@ -64,6 +64,19 @@ async def init_db():
             event_id TEXT NOT NULL
         )
     """)
+    await _db.execute("""
+        CREATE TABLE IF NOT EXISTS ritual_runs (
+            kind TEXT NOT NULL,
+            day TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            snooze_at TEXT,
+            snoozed INTEGER NOT NULL DEFAULT 0,
+            message_id INTEGER,
+            done_at TEXT,
+            PRIMARY KEY (kind, day)
+        )
+    """)
     await _db.commit()
 
     # Migrate: add task_id column to reminders if it doesn't exist yet
@@ -421,6 +434,84 @@ async def get_all_calendar_task_ids() -> list[str]:
     async with _db.execute("SELECT task_id FROM task_calendar_links") as cursor:
         rows = await cursor.fetchall()
     return [r[0] for r in rows]
+
+
+async def get_linked_event_ids() -> set[str]:
+    """События календаря, созданные из задач: в плане дня это задачи, не встречи."""
+    async with _db.execute("SELECT event_id FROM task_calendar_links") as cursor:
+        return {r[0] for r in await cursor.fetchall()}
+
+
+# --- Ritual runs: одна запись на сводку за день ---
+
+_RUN_TIMES = ("updated_at", "snooze_at", "done_at")
+
+
+def _dt(value):
+    from datetime import datetime
+    return datetime.fromisoformat(value) if value else None
+
+
+async def get_ritual_run(kind: str, day: str) -> dict | None:
+    async with _db.execute(
+        "SELECT status, updated_at, snooze_at, snoozed, message_id, done_at FROM ritual_runs WHERE kind = ? AND day = ?",
+        (kind, day),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    run = dict(zip(("status", "updated_at", "snooze_at", "snoozed", "message_id", "done_at"), row))
+    return {k: _dt(v) if k in _RUN_TIMES else v for k, v in run.items()}
+
+
+async def claim_ritual_run(kind: str, day: str, now, expected: dict | None) -> bool:
+    """Ставит status='sending', если запись не менялась с момента чтения.
+
+    expected — запись, по которой решили слать (None — записи не было).
+    Ложь — другой проход уже взял эту сводку.
+    """
+    if expected is None:
+        cursor = await _db.execute(
+            "INSERT OR IGNORE INTO ritual_runs (kind, day, status, updated_at) VALUES (?, ?, 'sending', ?)",
+            (kind, day, now.isoformat()),
+        )
+    else:
+        cursor = await _db.execute(
+            "UPDATE ritual_runs SET status = 'sending', updated_at = ? "
+            "WHERE kind = ? AND day = ? AND status = ? AND updated_at = ?",
+            (now.isoformat(), kind, day, expected["status"], expected["updated_at"].isoformat()),
+        )
+    await _db.commit()
+    return cursor.rowcount == 1
+
+
+async def update_ritual_run(kind: str, day: str, **fields):
+    """Обновляет поля записи; datetime пишутся в ISO."""
+    allowed = {"status", "updated_at", "snooze_at", "snoozed", "message_id", "done_at"}
+    if not fields or set(fields) - allowed:
+        raise ValueError(f"bad ritual_runs fields: {set(fields) - allowed}")
+    values = [v.isoformat() if hasattr(v, "isoformat") else v for v in fields.values()]
+    await _db.execute(
+        f"UPDATE ritual_runs SET {', '.join(f'{k} = ?' for k in fields)} WHERE kind = ? AND day = ?",
+        (*values, kind, day),
+    )
+    await _db.commit()
+
+
+async def insert_ritual_run(kind: str, day: str, status: str, now, **fields):
+    """Запись без отправки сводки (ритуал пройден до неё). Уже есть — не трогает."""
+    await _db.execute(
+        "INSERT OR IGNORE INTO ritual_runs (kind, day, status, updated_at) VALUES (?, ?, ?, ?)",
+        (kind, day, status, now.isoformat()),
+    )
+    await _db.commit()
+    if fields:
+        await update_ritual_run(kind, day, **fields)
+
+
+async def delete_ritual_run(kind: str, day: str):
+    await _db.execute("DELETE FROM ritual_runs WHERE kind = ? AND day = ?", (kind, day))
+    await _db.commit()
 
 
 # --- Task list headers (for cleanup after done/delete) ---

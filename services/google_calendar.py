@@ -173,40 +173,33 @@ async def update_event(event_id: str, start: datetime, end: datetime):
     resp.raise_for_status()
 
 
-async def get_events_week() -> list[dict]:
-    """Получает события на ближайшие 7 дней."""
+async def _list_events(time_min: datetime, time_max: datetime) -> list[dict]:
     token = await _get_token()
     headers = {"Authorization": f"Bearer {token}"}
-
-    tz = ZoneInfo(config.USER_TIMEZONE)
-    now = datetime.now(tz)
-    time_min = now.isoformat()
-    time_max = (now + timedelta(days=7)).replace(hour=23, minute=59, second=59).isoformat()
-
+    url = f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events"
+    params = {
+        "timeMin": time_min.isoformat(),
+        "timeMax": time_max.isoformat(),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": "100",
+    }
     client = get_http_client()
-    resp = await client.get(
-        f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events",
-        headers=headers,
-        params={
-            "timeMin": time_min,
-            "timeMax": time_max,
-            "singleEvents": "true",
-            "orderBy": "startTime",
-            "maxResults": "100",
-        },
-    )
+    resp = await client.get(url, headers=headers, params=params)
     if resp.status_code == 401:
         headers["Authorization"] = f"Bearer {await _force_refresh(token)}"
-        resp = await client.get(
-            f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events",
-            headers=headers,
-            params={
-                "timeMin": time_min,
-                "timeMax": time_max,
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "maxResults": "100",
-            },
-        )
+        resp = await client.get(url, headers=headers, params=params)
     resp.raise_for_status()
     return resp.json().get("items", [])
+
+
+async def get_events_week() -> list[dict]:
+    """Получает события на ближайшие 7 дней."""
+    now = datetime.now(ZoneInfo(config.USER_TIMEZONE))
+    return await _list_events(now, (now + timedelta(days=7)).replace(hour=23, minute=59, second=59))
+
+
+async def get_events_day(day: date) -> list[dict]:
+    """События местного дня целиком, с полуночи до полуночи."""
+    start = datetime.combine(day, datetime.min.time(), ZoneInfo(config.USER_TIMEZONE))
+    return await _list_events(start, start + timedelta(days=1))

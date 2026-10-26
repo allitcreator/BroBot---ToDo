@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery
 import config
 from db import storage
 from db.storage import resolve_task_id, register_task_id, remove_task_header
-from services import ms_todo, google_calendar, task_ops
+from services import ms_todo, google_calendar, rituals, task_ops
 from handlers.keyboards import (
     confirm_task_kb, calendar_ask_kb, settings_kb,
     confirm_done_kb, confirm_delete_kb, task_actions_kb,
@@ -20,6 +20,24 @@ from handlers import project_flow
 router = Router()
 
 user_filter = F.from_user.func(lambda u: u.id == config.TELEGRAM_USER_ID)
+
+
+# --- Сводки ритуалов: «Позже» и «Не сегодня» ---
+
+@router.callback_query(F.data.startswith("ritual:"), user_filter)
+async def cb_ritual(callback: CallbackQuery):
+    _, action, kind, day = callback.data.split(":", 3)
+    if kind not in rituals.KINDS:
+        await callback.answer()
+        return
+    if action == "snooze":
+        await rituals.snooze(callback.bot, kind, day, datetime.now(ZoneInfo(config.USER_TIMEZONE)))
+        await callback.answer("Напомню через час")
+    elif action == "dismiss":
+        await rituals.dismiss(callback.bot, kind, day)
+        await callback.answer("До завтра")
+    else:
+        await callback.answer()
 
 
 # --- Подтверждение создания задачи ---

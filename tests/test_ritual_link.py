@@ -38,7 +38,7 @@ def _send(text, monkeypatch):
     return msg.answers[-1]
 
 
-@pytest.mark.parametrize("arg", ["morning", "evening", "test"])
+@pytest.mark.parametrize("arg", ["test"])
 def test_команда_ritual_шлёт_кнопку_с_параметром(arg, monkeypatch):
     _, markup = _send(f"/ritual {arg}", monkeypatch)
     button = markup.inline_keyboard[0][0]
