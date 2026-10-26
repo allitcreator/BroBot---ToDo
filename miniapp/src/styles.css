@@ -36,14 +36,17 @@ ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: col
 
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
-button, .date {
+button {
   border: 0; border-radius: 8px; padding: 8px 12px; font-size: 14px;
   background: var(--button); color: var(--button-text); cursor: pointer;
 }
-button:disabled, .date.disabled { opacity: 0.5; }
+button:disabled { opacity: 0.5; }
 button.ghost { background: transparent; color: var(--button); font-size: 22px; padding: 4px 8px; }
 button.danger { background: transparent; color: var(--danger); }
 
-/* Нативный выбор даты поверх кнопки «Дата»: на телефоне открывается системный пикер. */
-.date { position: relative; overflow: hidden; }
-.date input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.picker input {
+  flex: 1 1 140px; min-width: 0; padding: 7px 8px; font-size: 16px;
+  border-radius: 8px; border: 1px solid var(--hint); background: var(--bg); color: var(--text);
+}
+button.ghost-text { background: transparent; color: var(--button); }

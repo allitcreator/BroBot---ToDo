@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -80,6 +80,33 @@ describe("Входящие", () => {
 
     await waitFor(() => expect(tg.alertUser).toHaveBeenCalledWith("MS To Do не ответил"));
     expect(screen.getByText("Статья про индексы")).toBeInTheDocument();
+  });
+
+  it("выбор даты не переносит задачу, пока не нажато «Перенести»", async () => {
+    render(<App />);
+    await screen.findByText("Статья про индексы");
+    await userEvent.click(screen.getAllByRole("button", { name: "Дата" })[0]);
+
+    // iOS при открытии пикера сам подставляет сегодня и шлёт change.
+    const input = screen.getByLabelText("Выбрать дату");
+    fireEvent.change(input, { target: { value: "2026-10-26" } });
+    fireEvent.change(input, { target: { value: "2026-11-03" } });
+    expect(api.scheduleTask).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
+    expect(api.scheduleTask).toHaveBeenCalledWith("aaaa1111", "2026-11-03");
+  });
+
+  it("отмена выбора даты оставляет задачу во входящих", async () => {
+    render(<App />);
+    await screen.findByText("Статья про индексы");
+    await userEvent.click(screen.getAllByRole("button", { name: "Дата" })[0]);
+    fireEvent.change(screen.getByLabelText("Выбрать дату"), { target: { value: "2026-11-03" } });
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+
+    expect(api.scheduleTask).not.toHaveBeenCalled();
+    expect(screen.getByText("Статья про индексы")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Выбрать дату")).not.toBeInTheDocument();
   });
 
   it("пустые входящие", async () => {

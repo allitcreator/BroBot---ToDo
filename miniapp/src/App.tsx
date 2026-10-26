@@ -19,6 +19,10 @@ export default function App() {
   // игнорируется, иначе задача переносилась бы дважды.
   const busy = useRef(new Set<string>());
   const [, rerender] = useState(0);
+  // Карточка, у которой открыт выбор даты, и выбранный день. Переносим
+  // только по «Перенести»: iOS при открытии пикера сам подставляет сегодня
+  // и шлёт change — раньше задача уезжала на сегодня от одного тапа.
+  const [picking, setPicking] = useState<{ key: string; date: string } | null>(null);
 
   const load = useCallback(async () => {
     setState({ kind: "loading" });
@@ -100,22 +104,36 @@ export default function App() {
                 <button disabled={disabled} onClick={() => void act(item, () => scheduleTask(item.key, "tomorrow"))}>
                   Завтра
                 </button>
-                <label className={`date ${disabled ? "disabled" : ""}`}>
+                <button disabled={disabled} onClick={() => setPicking({ key: item.key, date: "" })}>
                   Дата
-                  <input
-                    type="date"
-                    disabled={disabled}
-                    aria-label="Выбрать дату"
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value) void act(item, () => scheduleTask(item.key, value));
-                    }}
-                  />
-                </label>
+                </button>
                 <button className="danger" disabled={disabled} onClick={() => void remove(item)}>
                   Удалить
                 </button>
               </div>
+              {picking?.key === item.key && (
+                <div className="picker">
+                  <input
+                    type="date"
+                    aria-label="Выбрать дату"
+                    value={picking.date}
+                    onChange={(e) => setPicking({ key: item.key, date: e.target.value })}
+                  />
+                  <button
+                    disabled={!picking.date || disabled}
+                    onClick={() => {
+                      const date = picking.date;
+                      setPicking(null);
+                      void act(item, () => scheduleTask(item.key, date));
+                    }}
+                  >
+                    Перенести
+                  </button>
+                  <button className="ghost-text" onClick={() => setPicking(null)}>
+                    Отмена
+                  </button>
+                </div>
+              )}
             </li>
           );
         })}
