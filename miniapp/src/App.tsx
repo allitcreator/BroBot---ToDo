@@ -71,7 +71,7 @@ export default function App() {
       <main>
         {ritual === "test" && <p className="ritual-note">Получено из кнопки: ritual={ritual}</p>}
         {tab === "inbox" && <InboxScreen onChanged={refreshSummary} />}
-        {tab === "today" && <TodayScreen onChanged={refreshSummary} inbox={summary?.inbox ?? 0} onOpenInbox={() => setTab("inbox")} />}
+        {tab === "today" && <TodayScreen onChanged={refreshSummary} inbox={summary?.inbox ?? 0} onOpenInbox={() => setTab("inbox")} onRitual={setRitual} />}
         {tab === "week" && <WeekScreen onChanged={refreshSummary} />}
         {tab === "projects" && <ProjectsScreen />}
         {tab === "settings" && <SettingsScreen settings={settings} onSettings={onSettings} />}

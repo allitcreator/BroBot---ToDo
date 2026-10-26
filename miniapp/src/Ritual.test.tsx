@@ -292,3 +292,25 @@ describe("Вечернее закрытие", () => {
     expect(await screen.findByRole("heading", { name: "День закрыт" })).toBeInTheDocument();
   });
 });
+
+
+describe("Вход в ритуалы из приложения", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/");
+    vi.mocked(api.getEvening).mockResolvedValue(structuredClone(evening));
+  });
+
+  it("с экрана «Сегодня» открывается утренний разбор", async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /Утренний разбор/ }));
+    expect(await screen.findByRole("heading", { name: "Просрочено" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(await screen.findByRole("tablist")).toBeInTheDocument();
+  });
+
+  it("с экрана «Сегодня» открывается закрытие дня", async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /Закрыть день/ }));
+    expect(await screen.findByRole("heading", { name: "Что успел?" })).toBeInTheDocument();
+  });
+});

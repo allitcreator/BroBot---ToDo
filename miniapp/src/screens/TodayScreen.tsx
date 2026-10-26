@@ -10,9 +10,14 @@ import { alertUser, confirm, haptic } from "../telegram";
 type Data = { overdue: Task[]; today: Task[] };
 type Load = { kind: "loading" } | { kind: "ready"; data: Data } | { kind: "error"; message: string; expired: boolean };
 
-type Props = { onChanged?: () => void; inbox?: number; onOpenInbox?: () => void };
+type Props = {
+  onChanged?: () => void;
+  inbox?: number;
+  onOpenInbox?: () => void;
+  onRitual?: (kind: "morning" | "evening") => void;
+};
 
-export function TodayScreen({ onChanged, inbox = 0, onOpenInbox }: Props) {
+export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Props) {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [moving, setMoving] = useState(false);
   const { run, isBusy } = useCardActions(onChanged);
@@ -126,6 +131,12 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox }: Props) {
         <button className="ghost" onClick={() => void load()} aria-label="Обновить">↻</button>
       </header>
 
+      {onRitual && (
+        <div className="ritual-entry">
+          <button onClick={() => onRitual("morning")}>☀️ Утренний разбор</button>
+          <button onClick={() => onRitual("evening")}>🌙 Закрыть день</button>
+        </div>
+      )}
       {inbox > 0 && onOpenInbox && (
         <button className="banner" onClick={onOpenInbox}>
           📥 {inbox} во входящих <span>Разобрать</span>

@@ -160,3 +160,5 @@ button.banner {
   background: var(--card); color: var(--text); font-size: 15px;
 }
 button.banner span { color: var(--button); }
+.ritual-entry { display: flex; gap: 8px; margin: 0 0 8px; }
+.ritual-entry button { flex: 1; background: var(--card); color: var(--text); padding: 10px 8px; font-size: 15px; }
