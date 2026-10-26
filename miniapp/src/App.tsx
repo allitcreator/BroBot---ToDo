@@ -15,7 +15,7 @@ type Tab = "inbox" | "today" | "week" | "projects" | "settings";
 const ritualParam = () => new URLSearchParams(window.location.search).get("ritual");
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("inbox");
+  const [tab, setTab] = useState<Tab>("today");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [ritual, setRitual] = useState(ritualParam);
@@ -71,7 +71,7 @@ export default function App() {
       <main>
         {ritual === "test" && <p className="ritual-note">Получено из кнопки: ritual={ritual}</p>}
         {tab === "inbox" && <InboxScreen onChanged={refreshSummary} />}
-        {tab === "today" && <TodayScreen onChanged={refreshSummary} />}
+        {tab === "today" && <TodayScreen onChanged={refreshSummary} inbox={summary?.inbox ?? 0} onOpenInbox={() => setTab("inbox")} />}
         {tab === "week" && <WeekScreen onChanged={refreshSummary} />}
         {tab === "projects" && <ProjectsScreen />}
         {tab === "settings" && <SettingsScreen settings={settings} onSettings={onSettings} />}

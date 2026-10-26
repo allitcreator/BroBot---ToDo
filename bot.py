@@ -58,7 +58,7 @@ _COMMANDS = [
     BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
     BotCommand(command="scheduled", description="Напоминания и календарь"),
     BotCommand(command="projects", description="Проекты"),
-    BotCommand(command="app", description="Мини-апп: входящие"),
+    BotCommand(command="app", description="Мини-апп: задачи и разбор"),
     BotCommand(command="stats", description="Статистика"),
     BotCommand(command="settings", description="Настройки"),
 ]
@@ -90,7 +90,7 @@ async def on_startup(bot: Bot):
         try:
             await _with_retries(lambda: bot.set_chat_menu_button(
                 chat_id=config.TELEGRAM_USER_ID,
-                menu_button=MenuButtonWebApp(text="Входящие", web_app=WebAppInfo(url=config.MINIAPP_URL)),
+                menu_button=MenuButtonWebApp(text="Задачи", web_app=WebAppInfo(url=config.MINIAPP_URL)),
             ), "set_chat_menu_button")
         except Exception:
             logging.error("Не удалось выставить кнопку мини-аппа", exc_info=True)

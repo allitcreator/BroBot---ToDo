@@ -10,7 +10,9 @@ import { alertUser, confirm, haptic } from "../telegram";
 type Data = { overdue: Task[]; today: Task[] };
 type Load = { kind: "loading" } | { kind: "ready"; data: Data } | { kind: "error"; message: string; expired: boolean };
 
-export function TodayScreen({ onChanged }: { onChanged?: () => void }) {
+type Props = { onChanged?: () => void; inbox?: number; onOpenInbox?: () => void };
+
+export function TodayScreen({ onChanged, inbox = 0, onOpenInbox }: Props) {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [moving, setMoving] = useState(false);
   const { run, isBusy } = useCardActions(onChanged);
@@ -123,6 +125,12 @@ export function TodayScreen({ onChanged }: { onChanged?: () => void }) {
         <h1>Сегодня · {data.today.length}</h1>
         <button className="ghost" onClick={() => void load()} aria-label="Обновить">↻</button>
       </header>
+
+      {inbox > 0 && onOpenInbox && (
+        <button className="banner" onClick={onOpenInbox}>
+          📥 {inbox} во входящих <span>Разобрать</span>
+        </button>
+      )}
 
       {data.overdue.length > 0 && (
         <section>

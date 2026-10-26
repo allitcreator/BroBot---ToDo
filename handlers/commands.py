@@ -65,7 +65,7 @@ async def cmd_app(message: Message):
         await message.answer("Мини-апп не настроен: в .env нет MINIAPP_URL.")
         return
     await message.answer(
-        "📥 Разбор входящих — в мини-аппе:",
+        "📋 Задачи и разбор — в мини-аппе:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="Открыть", web_app=WebAppInfo(url=config.MINIAPP_URL)),
         ]]),

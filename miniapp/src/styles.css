@@ -154,3 +154,9 @@ button.primary { padding: 12px; font-size: 16px; margin-top: 14px; }
 }
 .summary { text-align: center; padding-top: 24px; }
 .summary .big { font-size: 48px; }
+button.banner {
+  display: flex; justify-content: space-between; align-items: center; width: 100%;
+  margin: 0 0 8px; padding: 10px 12px; border-radius: 10px;
+  background: var(--card); color: var(--text); font-size: 15px;
+}
+button.banner span { color: var(--button); }

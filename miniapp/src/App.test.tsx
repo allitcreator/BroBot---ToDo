@@ -37,18 +37,25 @@ beforeEach(() => {
   vi.mocked(api.getInbox).mockResolvedValue({ count: items.length, items });
   vi.mocked(api.scheduleTask).mockResolvedValue({ ok: true, date: "2026-10-26" });
   vi.mocked(api.deleteTask).mockResolvedValue({ ok: true });
+  vi.mocked(api.getToday).mockResolvedValue({ overdue: [], today: [] });
 });
+
+// Вкладка по умолчанию — «Сегодня»; входящие открываются табом.
+async function renderInbox() {
+  render(<App />);
+  await userEvent.click(await screen.findByRole("tab", { name: /Входящие/ }));
+}
 
 describe("Входящие", () => {
   it("показывает элементы и счётчик", async () => {
-    render(<App />);
+    await renderInbox();
     expect(await screen.findByText("Статья про индексы")).toBeInTheDocument();
     expect(screen.getByText("Посмотреть фильм")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Входящие · 2");
   });
 
   it("«Сегодня» назначает день и убирает элемент из списка", async () => {
-    render(<App />);
+    await renderInbox();
     await screen.findByText("Статья про индексы");
     await userEvent.click(screen.getAllByRole("button", { name: "Сегодня" })[0]);
 
@@ -62,7 +69,7 @@ describe("Входящие", () => {
     vi.mocked(api.scheduleTask).mockReturnValue(
       new Promise((resolve) => { release = () => resolve({ ok: true, date: "x" }); }),
     );
-    render(<App />);
+    await renderInbox();
     await screen.findByText("Статья про индексы");
     const button = screen.getAllByRole("button", { name: "Завтра" })[0];
     await userEvent.click(button);
@@ -74,7 +81,7 @@ describe("Входящие", () => {
 
   it("удаление спрашивает подтверждение и без него ничего не удаляет", async () => {
     vi.mocked(tg.confirm).mockResolvedValue(false);
-    render(<App />);
+    await renderInbox();
     await screen.findByText("Статья про индексы");
     await userEvent.click(screen.getAllByRole("button", { name: "Удалить" })[0]);
 
@@ -85,7 +92,7 @@ describe("Входящие", () => {
 
   it("при ошибке элемент возвращается и человек видит причину", async () => {
     vi.mocked(api.scheduleTask).mockRejectedValue(new api.ApiError(502, "MS To Do не ответил"));
-    render(<App />);
+    await renderInbox();
     await screen.findByText("Статья про индексы");
     await userEvent.click(screen.getAllByRole("button", { name: "Сегодня" })[0]);
 
@@ -94,7 +101,7 @@ describe("Входящие", () => {
   });
 
   it("выбор даты не переносит задачу, пока не нажато «Перенести»", async () => {
-    render(<App />);
+    await renderInbox();
     await screen.findByText("Статья про индексы");
     await userEvent.click(screen.getAllByRole("button", { name: "Дата" })[0]);
 
@@ -109,7 +116,7 @@ describe("Входящие", () => {
   });
 
   it("отмена выбора даты оставляет задачу во входящих", async () => {
-    render(<App />);
+    await renderInbox();
     await screen.findByText("Статья про индексы");
     await userEvent.click(screen.getAllByRole("button", { name: "Дата" })[0]);
     fireEvent.change(screen.getByLabelText("Выбрать дату"), { target: { value: "2026-11-03" } });
@@ -122,13 +129,13 @@ describe("Входящие", () => {
 
   it("пустые входящие", async () => {
     vi.mocked(api.getInbox).mockResolvedValue({ count: 0, items: [] });
-    render(<App />);
+    await renderInbox();
     expect(await screen.findByText(/всё разобрано/i)).toBeInTheDocument();
   });
 
   it("просроченная подпись — просьба переоткрыть, а не пустой экран", async () => {
     vi.mocked(api.getInbox).mockRejectedValue(new api.ApiError(401, "подпись просрочена"));
-    render(<App />);
+    await renderInbox();
     expect(await screen.findByText(/открой мини-апп заново/i)).toBeInTheDocument();
   });
 });
@@ -156,12 +163,27 @@ describe("Параметр ritual", () => {
 
   it("обычный вход — без метки", async () => {
     render(<App />);
-    await screen.findByText("Статья про индексы");
+    await screen.findByRole("tablist");
     expect(screen.queryByText(/ritual=/)).not.toBeInTheDocument();
   });
 });
 
 describe("Вкладки", () => {
+  it("по умолчанию «Сегодня», плашка входящих ведёт к разбору", async () => {
+    render(<App />);
+    expect(await screen.findByRole("tab", { name: /Сегодня/ })).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(await screen.findByRole("button", { name: /2 во входящих/ }));
+    expect(screen.getByRole("tab", { name: /Входящие/ })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("Статья про индексы")).toBeInTheDocument();
+  });
+
+  it("пустые входящие — без плашки", async () => {
+    vi.mocked(api.getSummary).mockResolvedValue({ inbox: 0, today: 0, overdue: 0 });
+    render(<App />);
+    await screen.findByText(/На сегодня ничего/);
+    expect(screen.queryByRole("button", { name: /во входящих/ })).not.toBeInTheDocument();
+  });
+
   it("показывают счётчики и переключают экраны", async () => {
     vi.mocked(api.getToday).mockResolvedValue({ overdue: [], today: [task("t1", "Позвонить", iso(0))] });
     render(<App />);
