@@ -1,7 +1,7 @@
 # HANDOFF
 
 Статус: открыт
-Обновлено: 2026-10-26 17:00 MSK
+Обновлено: 2026-10-26 17:20 MSK
 Клиент: Claude
 
 ## Цель
@@ -31,8 +31,7 @@
   - `deploy/backup-db.sh` — снимок `bot.db` через sqlite3 backup API,
     integrity_check, gzip, 14 дней.
 
-- Этап B, **закоммичен локально, не запушен, не задеплоен** (выкатку
-  остановил классификатор auto-режима, ждём разрешения Александра):
+- Этап B, **задеплоен в прод 2026-10-26** (прод — `db49653`):
   - `e43e3da` бот: нет даты → входящие (время без дня — сегодня), форвард
     без комментария через 2 с → входящие, ответ со счётчиком и кнопками
     «Сегодня/Завтра» (`inbox:*`), `/skip` чистит `saved_forwards`,
@@ -110,29 +109,32 @@ A-запись `todo.alxforbot.online`: в 16:00 MSK авторитетный `n
 - Живой прогон в Telegram после деплоя этапа A не сделан.
 - vps4 совмещён с LV-выходом VPN: правки nginx только через `nginx -t`.
 
+## Выкатка этапа B (2026-10-26)
+
+- Копия БД `data/bot.db.bak-20261026-B`; `MINIAPP_URL` дописан в `.env`.
+- Первый старт после сборки упал: `TelegramNetworkError ... Connection reset
+  by peer` на вызове к api.telegram.org. Сеть через минуту работала
+  (curl 302, из контейнера 200), но процесс завис живым без порта, docker
+  не перезапускал. Простой ~4 мин, снят `docker compose restart`. Причина
+  закрыта коммитом `db49653`: повторы с паузой, выход с кодом 1, если
+  вебхук не встал. Повторный старт — с первой попытки.
+- Сертификат `todo.alxforbot.online` выпущен (аккаунт LE основного домена:
+  на сервере их два, без `--account` certbot не выбирает). Конфиг
+  `/etc/nginx/sites-available/todo`, статика `/var/www/todobot`.
+- `bots`: `location = /webhook/todobot/` (бэкап `/root/nginx-backup/bots.nginx.bak`).
+- Проверено снаружи: мини-апп 200, `/health` 200, `/api/inbox` без подписи
+  и с поддельной — 401, `alxforbot.online/webhook/todobot/api/inbox` — 404,
+  вебхук без секрета — 401, CSP/HSTS на месте, `/app/` foodbot — 200.
+
 ## Следующий точный шаг
 
-Выкатка этапа B (нужно разрешение):
-
-```
-git push origin main
-# бэкенд
-ssh vps4 'cd /root/todobot && cp data/bot.db data/bot.db.bak-B \
-  && grep -q ^MINIAPP_URL= .env || echo MINIAPP_URL=https://todo.alxforbot.online/ >> .env; \
-  git pull --ff-only && docker compose up -d --build'
-# фронт и nginx (локально)
-deploy/deploy-front.sh nginx     # первый раз выпустит сертификат
-deploy/deploy-front.sh front
-deploy/deploy-front.sh webhook   # /webhook/todobot/ только точным путём
-```
-
-Проверки после: `curl -s https://todo.alxforbot.online/health` → 200;
-`/api/inbox` без подписи → 401; `https://alxforbot.online/webhook/todobot/api/inbox`
-→ не 401 (до бота не доходит); в Telegram — кнопка меню «Входящие», «купить
-молоко» без даты → входящие, разбор в мини-аппе; Telegram Web открывает
-мини-апп (frame-ancestors, CSP).
-
-Потом: метрика «положено против разобрано» неделю; Этап C («Сегодня/Неделя»).
+1. Живой прогон Александром: кнопка меню «Входящие» (может потребоваться
+   перезапуск чата), «купить молоко» → входящие, форвард без комментария →
+   входящие, разбор в мини-аппе на телефоне и в Telegram Desktop/Web.
+2. Неделя метрики «положено против разобрано».
+3. Этап C — «Сегодня/Неделя» (см. `MINIAPP-PLAN.md`).
+4. Из аудита ещё открыто: `USER` в Dockerfile, healthcheck, `dp.errors`,
+   тихие `except`, статистика завершённых, закрепление версий.
 
 ## Rollback
 
