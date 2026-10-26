@@ -1,7 +1,7 @@
 # HANDOFF
 
 Статус: открыт
-Обновлено: 2026-10-26 16:35 MSK
+Обновлено: 2026-10-26 17:00 MSK
 Клиент: Claude
 
 ## Цель
@@ -30,6 +30,23 @@
     `.gitignore` на `.env*` и `backups/`;
   - `deploy/backup-db.sh` — снимок `bot.db` через sqlite3 backup API,
     integrity_check, gzip, 14 дней.
+
+- Этап B, **закоммичен локально, не запушен, не задеплоен** (выкатку
+  остановил классификатор auto-режима, ждём разрешения Александра):
+  - `e43e3da` бот: нет даты → входящие (время без дня — сегодня), форвард
+    без комментария через 2 с → входящие, ответ со счётчиком и кнопками
+    «Сегодня/Завтра» (`inbox:*`), `/skip` чистит `saved_forwards`,
+    `ms_todo.get_inbox_tasks`;
+  - `4ce5781` мини-апп: `api/auth.py` (initData, формат hash, срок 2 ч),
+    `api/routes.py` (`/api/inbox`, `/api/tasks/{key}/schedule`,
+    `DELETE /api/tasks/{key}`, `/health`), `services/task_ops.py`
+    (чистка хвостов задачи), кэш срезов 60 с в `ms_todo`, кнопка меню и
+    `/app` по `MINIAPP_URL`, `miniapp/` (React + Vite), `deploy/nginx-todo.conf`,
+    `deploy/deploy-front.sh` (цели `front`, `nginx`, `webhook`).
+  - Security-ревью: обхода auth нет; шесть Low исправлены (формат hash,
+    срок подписи, `%r` пути в логах, CSP со script-src, заголовки в каждом
+    location, limit_req, проверка замены вебхука, бэкапы nginx в
+    `/root/nginx-backup`, откат первого запуска, `npm ci --ignore-scripts`).
 
 ## Текущее состояние
 
@@ -95,13 +112,37 @@ A-запись `todo.alxforbot.online`: в 16:00 MSK авторитетный `n
 
 ## Следующий точный шаг
 
-1. Живой тест в Telegram: обычная задача, `/todotoday`, `/stats`.
-2. Утром 2026-10-27 проверить, что cron снял снимок:
-   `ssh vps4 'tail -3 /var/log/todobot-backup.log'`.
-3. Этап B из `MINIAPP-PLAN.md`: сначала бот (нет даты → входящие, форвард без
-   комментария → входящие), затем скелет мини-аппа и экран «Входящие».
+Выкатка этапа B (нужно разрешение):
+
+```
+git push origin main
+# бэкенд
+ssh vps4 'cd /root/todobot && cp data/bot.db data/bot.db.bak-B \
+  && grep -q ^MINIAPP_URL= .env || echo MINIAPP_URL=https://todo.alxforbot.online/ >> .env; \
+  git pull --ff-only && docker compose up -d --build'
+# фронт и nginx (локально)
+deploy/deploy-front.sh nginx     # первый раз выпустит сертификат
+deploy/deploy-front.sh front
+deploy/deploy-front.sh webhook   # /webhook/todobot/ только точным путём
+```
+
+Проверки после: `curl -s https://todo.alxforbot.online/health` → 200;
+`/api/inbox` без подписи → 401; `https://alxforbot.online/webhook/todobot/api/inbox`
+→ не 401 (до бота не доходит); в Telegram — кнопка меню «Входящие», «купить
+молоко» без даты → входящие, разбор в мини-аппе; Telegram Web открывает
+мини-апп (frame-ancestors, CSP).
+
+Потом: метрика «положено против разобрано» неделю; Этап C («Сегодня/Неделя»).
 
 ## Rollback
+
+Этап B: `git revert 4ce5781 e43e3da`, на vps4 pull + compose; nginx —
+`rm /etc/nginx/sites-enabled/todo && systemctl reload nginx`, вебхук —
+`cp /root/nginx-backup/bots.nginx.bak /etc/nginx/sites-available/bots`.
+Задачи, созданные без даты, остаются в To Do без срока — это валидное
+состояние, чинить не нужно.
+
+Этап A:
 
 Код: `git revert 4895e38 && git push origin main`, на vps4
 `git pull && docker compose up -d --build`. Схема БД не менялась; копия
