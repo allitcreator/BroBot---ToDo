@@ -1,7 +1,7 @@
 # HANDOFF
 
 Статус: открыт
-Обновлено: 2026-10-26 23:50 MSK
+Обновлено: 2026-10-27 00:25 MSK
 Клиент: Claude
 
 ## Цель
@@ -75,51 +75,47 @@ Calendar + задачи + сравнение с нормой (медиана 5).
 
 ## Изменённые файлы
 
-Этап 0 ритуала (коммит «Перенос задачи двигает напоминания и событие…»),
-в прод не выкачен:
+Этап 0 ритуала **в проде** (`5b568b8`, бэкенд и фронт):
 - `services/task_ops.py` — `reschedule` (дата + сдвиг напоминания бота,
-  напоминания MS и события на одну дельту в UTC), `task_time`,
-  `move_today_to_tomorrow` / `move_overdue_to_today` (переехали из
-  `ms_todo`, сбой одной задачи не обрывает остальные).
+  напоминания MS и события на одну дельту в UTC; при наличии времени
+  задача читается из Graph заново), `task_time`, массовые переносы чата.
 - `services/google_calendar.py` — `update_event`; `db/storage.py` —
   `get_task_reminders`, `set_reminder_fire_at`.
-- `api/routes.py` — `schedule` и `move` принимают `time`/`times`, отдают
-  `warnings`; `GET /api/tasks/{key}/time`; `view` проверяется до загрузки.
-- `handlers/commands.py` — `/ritual morning|evening|test` (кнопка web_app
-  с `?ritual=`), `ritual_url`; чат-переносы идут через `task_ops`.
-- `miniapp/src/components/TimeSheet.tsx` — окно времени; «Сегодня» и
-  «Неделя» спрашивают время у задач с 🔔/🗓; `App.tsx` — метка `ritual=`.
-- Тесты: `tests/test_reschedule.py`, `tests/test_ritual_link.py`, новые в
-  `tests/test_api.py` и `miniapp/src/App.test.tsx`.
+- `api/routes.py` — `schedule`/`move` с `time`/`times` и `warnings`;
+  `GET /api/tasks/{key}/time`.
+- `handlers/commands.py` — `/ritual morning|evening|test`.
+- `miniapp/src/components/TimeSheet.tsx` — окно времени («Сегодня»,
+  «Неделя»); `App.tsx` — метка `ritual=`.
+- `deploy/smoke_reschedule.py` — сквозной смоук переноса на проде.
 
 ## Проверки
 
-- Бэкенд 160 passed (`venv/bin/python -m pytest tests -q`), в том числе с
-  отрезанной сетью (`HTTPS_PROXY=http://127.0.0.1:9`) — тесты в Graph не
-  ходят. Фронт 35 passed, `tsc` чисто, `npm run build` ок.
-- Ревью `reviewer`: DST-сдвиг и сбой чтения после переноса даты —
-  исправлены с тестами.
-- Не проверено: вид окна времени на телефоне; доходит ли `?ritual=` из
-  inline web_app-кнопки — это ручная приёмка этапа 0 после выкатки.
+- Бэкенд 161 passed, в сеть не ходят (`HTTPS_PROXY=http://127.0.0.1:9`);
+  фронт 35 passed; `tsc`, сборка ок. Ревью `reviewer` учтено.
+- Прод: `ssh vps4 "cd ~/todobot && docker compose exec -T todobot python -"
+  < deploy/smoke_reschedule.py` → 12/12 (первый прогон нашёл баг с
+  напоминанием MS — исправлен в `5b568b8`). Смоук ждёт подъёма бота:
+  сначала `curl -sf https://todo.alxforbot.online/health`.
+- Вид окна времени проверен снимком статичной страницы (`qlmanage`).
+- Не проверено живьём: `?ritual=` из inline web_app-кнопки в Telegram.
 - Не проверено: cron бэкапа БД в 04:30 27.10 —
   `ssh vps4 'tail -3 /var/log/todobot-backup.log; ls /root/todobot/backups'`.
 
 ## Блокеры и риски
 
-- Выкатка этапа 0 — только по «выкатывай» от Александра.
+- Александр не проверяет руками: приёмка — тесты и смоук на проде.
+  Выкатка для задачи «ритуал» разрешена.
 - Из аудита открыто: `USER` в Dockerfile, healthcheck, `dp.errors`, тихие
   `except`, закрепление версий, статистика 2.5 с (три запроса подряд).
 
 ## Следующий точный шаг
 
-1. Спросить «выкатывать этап 0?». После выкатки (бэкенд по `DEPLOY.md`,
-   фронт `deploy/deploy-front.sh`): Александр шлёт `/ritual test`,
-   открывает кнопку — сверху должна быть метка `ritual=test`; переносит
-   задачу с 🔔 на завтра с другим временем — напоминание приходит в новое.
-2. Затем этап 1 `RITUAL-PLAN.md` — настройки ритуалов.
-3. Cron бэкапа — после 04:30 27.10.
+1. Этап 1 `RITUAL-PLAN.md` — настройки ритуалов (миграция `settings`,
+   `GET/PATCH /api/settings`, раздел «Ритуалы» в мини-аппе).
+2. Cron бэкапа — после 04:30 27.10.
 
 ## Rollback
 
-Этап 0: `git revert <коммит этапа 0>`, затем передеплой бэкенда и фронта.
+Этап 0: `git revert 5b568b8 baa20e4 9465ca6`, push, на vps4
+`git pull && docker compose up -d --build` и `deploy/deploy-front.sh front`.
 Схема БД не менялась. Откат этапов A–D — в `HANDOFF-archive.md`.
