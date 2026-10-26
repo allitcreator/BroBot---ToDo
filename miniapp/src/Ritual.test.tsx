@@ -96,6 +96,17 @@ describe("Утренний разбор", () => {
     expect(await screen.findByRole("heading", { name: "Застряло" })).toBeInTheDocument();
   });
 
+  it("частичный сбой оставляет неперенесённые в шаге", async () => {
+    vi.mocked(api.moveKeys).mockResolvedValue({ moved: 1, total: 2, failed: ["Полить цветы"] });
+    render(<App />);
+    await screen.findByText("Оплатить интернет");
+    await next();
+    await waitFor(() => expect(tg.alertUser).toHaveBeenCalledWith(expect.stringContaining("Полить цветы")));
+    expect(screen.getByRole("heading", { name: "Просрочено" })).toBeInTheDocument();
+    expect(screen.getByText("Полить цветы")).toBeInTheDocument();
+    expect(screen.queryByText("Оплатить интернет")).not.toBeInTheDocument();
+  });
+
   it("у просроченной задачи со временем спрашивает время", async () => {
     vi.mocked(api.getMorning).mockResolvedValue({ ...structuredClone(morning), overdue: [t("o1", "Созвон", { date: iso(-1), calendar: true })] });
     vi.mocked(api.getTaskTime).mockResolvedValue({ time: "11:00" });

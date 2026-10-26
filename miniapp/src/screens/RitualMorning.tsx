@@ -109,8 +109,11 @@ export function RitualMorning({ onClose }: { onClose: () => void }) {
       const text = [failed, warningText(r.warnings)].filter(Boolean).join("\n\n");
       if (text) alertUser(text);
       haptic(r.failed.length ? "error" : "success");
-      setState({ kind: "ready", data: { ...data, overdue: [] } });
-      nextStep();
+      // Неперенесённые остаются в шаге: их можно перенести или удалить по одной.
+      const notMoved = new Set(r.failed);
+      const kept = rest.filter((t) => notMoved.has(t.title));
+      setState({ kind: "ready", data: { ...data, overdue: kept } });
+      if (!kept.length) nextStep();
     } catch (e) {
       haptic("error");
       alertUser((e as Error).message);
@@ -123,8 +126,12 @@ export function RitualMorning({ onClose }: { onClose: () => void }) {
   const oneByOne = (s: "stuck" | "inbox") => {
     const task = data[s][0];
     if (!task) {
-      queueMicrotask(nextStep);
-      return null;
+      // Обычно сюда не попадаем: после последней карточки шаг сменяется сам.
+      return (
+        <button className="wide primary" onClick={nextStep}>
+          Дальше
+        </button>
+      );
     }
     // Последняя карточка шага — после действия сразу следующий шаг.
     const last = data[s].length === 1;
