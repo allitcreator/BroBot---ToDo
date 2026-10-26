@@ -28,7 +28,7 @@ front)
     say "Заливаю статику в $WEB_DIR"
     # Распаковываем рядом и подменяем каталог одним mv: нет момента, когда
     # мини-апп отдаёт пустоту.
-    COPYFILE_DISABLE=1 tar -C "$ROOT/miniapp/dist" --exclude '._*' -czf - . | ssh "$HOST" "
+    COPYFILE_DISABLE=1 tar --no-xattrs -C "$ROOT/miniapp/dist" --exclude '._*' -czf - . | ssh "$HOST" "
         set -e
         rm -rf $WEB_DIR.new && mkdir -p $WEB_DIR.new
         tar -C $WEB_DIR.new -xzf -
@@ -56,7 +56,7 @@ nginx)
                 echo 'nginx -t не прошёл на блоке :80, всё убрано' >&2; exit 1
             fi
             systemctl reload nginx
-            if ! certbot certonly --webroot -w /var/www/html -d todo.alxforbot.online --non-interactive --agree-tos; then
+            if ! certbot certonly --webroot -w /var/www/html -d todo.alxforbot.online --non-interactive --agree-tos --account \$(awk '/^account/{print \$3}' /etc/letsencrypt/renewal/alxforbot.online.conf); then
                 rm -f $SITE /etc/nginx/sites-enabled/todo; systemctl reload nginx
                 echo 'сертификат не выпущен, конфиг убран' >&2; exit 1
             fi

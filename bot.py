@@ -1,6 +1,7 @@
 import asyncio
-import sys
 import logging
+import os
+import sys
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -30,29 +31,65 @@ async def _reminder_loop(bot: Bot):
             logging.error(f"Reminder loop error: {e}")
 
 
+_COMMANDS = [
+    BotCommand(command="todotoday", description="Задачи на сегодня"),
+    BotCommand(command="tomorrow", description="Задачи на завтра"),
+    BotCommand(command="todoall", description="Все открытые задачи"),
+    BotCommand(command="overdue", description="Просроченные задачи"),
+    BotCommand(command="today2tomorrow", description="Перенести сегодняшние на завтра"),
+    BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
+    BotCommand(command="scheduled", description="Напоминания и календарь"),
+    BotCommand(command="projects", description="Проекты"),
+    BotCommand(command="app", description="Мини-апп: входящие"),
+    BotCommand(command="stats", description="Статистика"),
+    BotCommand(command="settings", description="Настройки"),
+]
+
+
+async def _with_retries(call, what: str, attempts: int = 5, base_delay: float = 2.0):
+    """Повторяет сетевой вызов к Telegram с нарастающей паузой (2, 4, 8, 16 с)."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return await call()
+        except Exception as e:
+            if attempt == attempts:
+                raise
+            logging.warning(f"{what}: попытка {attempt} не удалась ({e}), повторяю")
+            await asyncio.sleep(base_delay * 2 ** (attempt - 1))
+
+
 async def on_startup(bot: Bot):
     await storage.init_db()
     asyncio.create_task(_reminder_loop(bot))
-    await bot.set_my_commands([
-        BotCommand(command="todotoday", description="Задачи на сегодня"),
-        BotCommand(command="tomorrow", description="Задачи на завтра"),
-        BotCommand(command="todoall", description="Все открытые задачи"),
-        BotCommand(command="overdue", description="Просроченные задачи"),
-        BotCommand(command="today2tomorrow", description="Перенести сегодняшние на завтра"),
-        BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
-        BotCommand(command="scheduled", description="Напоминания и календарь"),
-        BotCommand(command="projects", description="Проекты"),
-        BotCommand(command="app", description="Мини-апп: входящие"),
-        BotCommand(command="stats", description="Статистика"),
-        BotCommand(command="settings", description="Настройки"),
-    ])
+
+    # Команды и кнопка меню — удобство: если Telegram недоступен, бот всё
+    # равно должен подняться и принимать апдейты.
+    try:
+        await _with_retries(lambda: bot.set_my_commands(_COMMANDS), "set_my_commands")
+    except Exception:
+        logging.error("Не удалось выставить команды бота", exc_info=True)
     if config.MINIAPP_URL:
-        await bot.set_chat_menu_button(
-            chat_id=config.TELEGRAM_USER_ID,
-            menu_button=MenuButtonWebApp(text="Входящие", web_app=WebAppInfo(url=config.MINIAPP_URL)),
-        )
+        try:
+            await _with_retries(lambda: bot.set_chat_menu_button(
+                chat_id=config.TELEGRAM_USER_ID,
+                menu_button=MenuButtonWebApp(text="Входящие", web_app=WebAppInfo(url=config.MINIAPP_URL)),
+            ), "set_chat_menu_button")
+        except Exception:
+            logging.error("Не удалось выставить кнопку мини-аппа", exc_info=True)
+
+    # Без вебхука бот глух. Если он так и не встал — выходим с ошибкой, чтобы
+    # docker перезапустил контейнер: исключение из on_startup оставляло
+    # процесс живым, но не слушающим порт (2026-10-26).
     webhook_url = f"{config.WEBHOOK_HOST}{config.WEBHOOK_PATH}"
-    await bot.set_webhook(webhook_url, secret_token=config.WEBHOOK_SECRET or None)
+    try:
+        await _with_retries(
+            lambda: bot.set_webhook(webhook_url, secret_token=config.WEBHOOK_SECRET or None),
+            "set_webhook",
+        )
+    except Exception:
+        logging.critical("Вебхук не установлен, выходим для перезапуска", exc_info=True)
+        logging.shutdown()
+        os._exit(1)
     logging.info(f"Webhook set: {webhook_url}")
 
 
@@ -105,19 +142,7 @@ async def run_polling():
     dp.include_router(callbacks.router)
     dp.include_router(messages.router)
 
-    await bot.set_my_commands([
-        BotCommand(command="todotoday", description="Задачи на сегодня"),
-        BotCommand(command="tomorrow", description="Задачи на завтра"),
-        BotCommand(command="todoall", description="Все открытые задачи"),
-        BotCommand(command="overdue", description="Просроченные задачи"),
-        BotCommand(command="today2tomorrow", description="Перенести сегодняшние на завтра"),
-        BotCommand(command="overdue2today", description="Перенести просроченные на сегодня"),
-        BotCommand(command="scheduled", description="Напоминания и календарь"),
-        BotCommand(command="projects", description="Проекты"),
-        BotCommand(command="app", description="Мини-апп: входящие"),
-        BotCommand(command="stats", description="Статистика"),
-        BotCommand(command="settings", description="Настройки"),
-    ])
+    await bot.set_my_commands(_COMMANDS)
 
     logging.info("Bot started (polling)")
     asyncio.create_task(_reminder_loop(bot))
