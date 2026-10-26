@@ -10,3 +10,4 @@ knowledge-base/
 BroBot*.json
 .DS_Store
 backups/
+design/private/
