@@ -1,0 +1,22 @@
+# В образ — только код. Секреты и база приходят на рантайме: .env через
+# env_file, data/ через volume. Без этого файла `COPY . .` запекал в слой
+# образа .env, его бэкапы и копии bot.db.
+.env*
+!.env.example
+data/
+*.db
+*.db.bak*
+.git/
+.gitignore
+venv/
+__pycache__/
+*.pyc
+tests/
+knowledge-base/
+.claude/
+BroBot*.json
+*.md
+docker-compose.yml*
+.dockerignore
+backups/
+deploy/

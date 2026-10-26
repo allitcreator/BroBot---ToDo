@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import time
 import httpx
 from datetime import datetime, timedelta, date
@@ -7,6 +9,15 @@ import config
 _access_token: str | None = None
 _token_expires_at: float = 0
 _http_client: httpx.AsyncClient | None = None
+# Один рефреш на всех параллельных запросах, как в ms_todo.
+_refresh_lock = asyncio.Lock()
+
+logger = logging.getLogger(__name__)
+
+
+class AuthExpiredError(Exception):
+    """Refresh-токен Google больше не принимается — нужен новый через get_tokens.py."""
+
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 CALENDAR_URL = "https://www.googleapis.com/calendar/v3"
@@ -36,16 +47,40 @@ async def _refresh_token() -> str:
         "client_secret": config.GOOGLE_CLIENT_SECRET,
     })
     if resp.status_code != 200:
-        raise RuntimeError(f"Google token refresh failed [{resp.status_code}]: {resp.text}")
+        detail = resp.text[:300]
+        logger.error("Google token refresh failed [%s]: %s", resp.status_code, detail)
+        if resp.status_code in (400, 401):
+            raise AuthExpiredError(
+                "Google Calendar не принимает refresh-токен. Перевыпусти его: "
+                f"python get_tokens.py, затем обнови GOOGLE_REFRESH_TOKEN в .env. "
+                f"Ответ Google: {detail}"
+            )
+        raise RuntimeError(f"Google token refresh failed [{resp.status_code}]: {detail}")
     data = resp.json()
     _access_token = data["access_token"]
     _token_expires_at = time.time() + data.get("expires_in", 3600)
     return _access_token
 
 
+def _token_is_fresh() -> bool:
+    return bool(_access_token) and time.time() <= _token_expires_at - 60
+
+
 async def _get_token() -> str:
-    if not _access_token or time.time() > _token_expires_at - 60:
-        await _refresh_token()
+    if _token_is_fresh():
+        return _access_token
+    async with _refresh_lock:
+        # Пока ждали замок, токен мог обновить соседний запрос.
+        if not _token_is_fresh():
+            await _refresh_token()
+    return _access_token
+
+
+async def _force_refresh(stale_token: str) -> str:
+    """Рефреш после 401: только если токен ещё не обновил кто-то другой."""
+    async with _refresh_lock:
+        if _access_token == stale_token:
+            await _refresh_token()
     return _access_token
 
 
@@ -75,8 +110,7 @@ async def create_event(
         json=body,
     )
     if resp.status_code == 401:
-        await _refresh_token()
-        headers["Authorization"] = f"Bearer {_access_token}"
+        headers["Authorization"] = f"Bearer {await _force_refresh(token)}"
         resp = await client.post(
             f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events",
             headers=headers,
@@ -95,8 +129,7 @@ async def get_event(event_id: str) -> dict:
         headers=headers,
     )
     if resp.status_code == 401:
-        await _refresh_token()
-        headers["Authorization"] = f"Bearer {_access_token}"
+        headers["Authorization"] = f"Bearer {await _force_refresh(token)}"
         resp = await client.get(
             f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events/{event_id}",
             headers=headers,
@@ -114,8 +147,7 @@ async def delete_event(event_id: str):
         headers=headers,
     )
     if resp.status_code == 401:
-        await _refresh_token()
-        headers["Authorization"] = f"Bearer {_access_token}"
+        headers["Authorization"] = f"Bearer {await _force_refresh(token)}"
         resp = await client.delete(
             f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events/{event_id}",
             headers=headers,
@@ -147,8 +179,7 @@ async def get_events_week() -> list[dict]:
         },
     )
     if resp.status_code == 401:
-        await _refresh_token()
-        headers["Authorization"] = f"Bearer {_access_token}"
+        headers["Authorization"] = f"Bearer {await _force_refresh(token)}"
         resp = await client.get(
             f"{CALENDAR_URL}/calendars/{config.GOOGLE_CALENDAR_ID}/events",
             headers=headers,

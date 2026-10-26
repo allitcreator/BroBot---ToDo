@@ -4,6 +4,14 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8081:8080"
+      # Наружу не выставляем: docker публикует порты в обход ufw, снаружи
+      # ходит только nginx с хоста.
+      - "127.0.0.1:8081:8080"
     volumes:
       - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        # Диск vps4 уже забивался до 94% — логи ограничиваем.
+        max-size: "10m"
+        max-file: "3"

@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher
@@ -120,6 +121,9 @@ async def run_polling():
 
 
 if __name__ == "__main__":
+    problems = config.config_problems()
+    if problems:
+        sys.exit("Бот не запущен, проблемы с .env:\n- " + "\n- ".join(problems))
     if config.USE_WEBHOOK:
         run_webhook()
     else:

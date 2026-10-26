@@ -1,13 +1,22 @@
 import json
 import base64
+import logging
+import httpx
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from openai import AsyncOpenAI, APIStatusError
 import config
 
+logger = logging.getLogger(__name__)
+
+# Дефолт SDK — 600 с на попытку и два ретрая: хендлер мог висеть полчаса.
+# 45 с хватает и на интервью, и на транскрипцию голоса; разведка, которой
+# нужно дольше, поднимает таймаут для себя через with_options.
 client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=config.OPENROUTER_API_KEY,
+    timeout=httpx.Timeout(45.0, connect=5.0),
+    max_retries=1,
 )
 
 
@@ -117,6 +126,9 @@ async def classify_message(text: str) -> dict:
         )
         data = json.loads(response.choices[0].message.content)
     except Exception:
+        # Тихий unclear прятал падения OpenRouter (в т.ч. 402 — кончились
+        # кредиты): пользователь видел «не понял», оператор — ничего.
+        logger.warning("classify_message failed", exc_info=True)
         return {"kind": "unclear", "reason": "классификатор не ответил"}
 
     kind = data.get("kind")

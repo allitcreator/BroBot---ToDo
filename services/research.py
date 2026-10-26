@@ -40,7 +40,8 @@ async def research(title: str, brief: dict | None = None) -> dict:
     query = _format_query(title, brief or {})
 
     try:
-        response = await client.chat.completions.create(
+        # Поиск у Sonar дольше обычного ответа модели — общий таймаут 45 с мал.
+        response = await client.with_options(timeout=90.0).chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": _SYSTEM},

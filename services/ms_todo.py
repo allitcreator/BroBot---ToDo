@@ -1,4 +1,6 @@
+import asyncio
 import base64
+import logging
 import time
 import httpx
 from datetime import date, timedelta, datetime
@@ -8,6 +10,19 @@ import config
 _access_token: str | None = None
 _token_expires_at: float = 0
 _http_client: httpx.AsyncClient | None = None
+# MS может прислать новый refresh-токен; держим последний полученный,
+# а не только тот, что был в .env на старте.
+_current_refresh_token: str | None = None
+# Мини-апп и чат дёргают Graph параллельно: без замка каждый запрос с
+# протухшим токеном устраивал бы свой рефреш.
+_refresh_lock = asyncio.Lock()
+
+logger = logging.getLogger(__name__)
+
+
+class AuthExpiredError(Exception):
+    """Refresh-токен MS больше не принимается — нужен новый через get_tokens.py."""
+
 
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 GRAPH_URL = "https://graph.microsoft.com/v1.0"
@@ -28,25 +43,52 @@ async def close():
 
 
 async def _refresh_token() -> str:
-    global _access_token, _token_expires_at
+    global _access_token, _token_expires_at, _current_refresh_token
     client = get_http_client()
     resp = await client.post(TOKEN_URL, data={
         "grant_type": "refresh_token",
-        "refresh_token": config.MS_REFRESH_TOKEN,
+        "refresh_token": _current_refresh_token or config.MS_REFRESH_TOKEN,
         "client_id": config.MS_CLIENT_ID,
         "client_secret": config.MS_CLIENT_SECRET,
         "scope": "Tasks.ReadWrite offline_access User.Read",
     })
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        detail = resp.text[:300]
+        logger.error("MS token refresh failed [%s]: %s", resp.status_code, detail)
+        if resp.status_code in (400, 401):
+            raise AuthExpiredError(
+                "MS To Do не принимает refresh-токен. Перевыпусти его: "
+                f"python get_tokens.py, затем обнови MS_REFRESH_TOKEN в .env. "
+                f"Ответ MS: {detail}"
+            )
+        raise Exception(f"MS token refresh failed [{resp.status_code}]: {detail}")
     data = resp.json()
     _access_token = data["access_token"]
     _token_expires_at = time.time() + data.get("expires_in", 3600)
+    if data.get("refresh_token"):
+        _current_refresh_token = data["refresh_token"]
     return _access_token
 
 
+def _token_is_fresh() -> bool:
+    return bool(_access_token) and time.time() <= _token_expires_at - 60
+
+
 async def _get_token() -> str:
-    if not _access_token or time.time() > _token_expires_at - 60:
-        await _refresh_token()
+    if _token_is_fresh():
+        return _access_token
+    async with _refresh_lock:
+        # Пока ждали замок, токен мог обновить соседний запрос.
+        if not _token_is_fresh():
+            await _refresh_token()
+    return _access_token
+
+
+async def _force_refresh(stale_token: str) -> str:
+    """Рефреш после 401: только если токен ещё не обновил кто-то другой."""
+    async with _refresh_lock:
+        if _access_token == stale_token:
+            await _refresh_token()
     return _access_token
 
 
@@ -56,8 +98,7 @@ async def _request(method: str, path: str, params: dict | None = None, **kwargs)
     client = get_http_client()
     resp = await client.request(method, f"{GRAPH_URL}{path}", headers=headers, params=params, **kwargs)
     if resp.status_code == 401:
-        await _refresh_token()
-        headers["Authorization"] = f"Bearer {_access_token}"
+        headers["Authorization"] = f"Bearer {await _force_refresh(token)}"
         resp = await client.request(method, f"{GRAPH_URL}{path}", headers=headers, params=params, **kwargs)
     if not resp.is_success:
         raise Exception(f"MS Graph {resp.status_code}: {resp.text}")

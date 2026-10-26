@@ -38,3 +38,34 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 def local_today() -> date:
     """Текущая дата в часовом поясе пользователя."""
     return datetime.now(ZoneInfo(USER_TIMEZONE)).date()
+
+
+_REQUIRED_VARS = (
+    "TELEGRAM_BOT_TOKEN",
+    "OPENROUTER_API_KEY",
+    "MS_CLIENT_ID",
+    "MS_CLIENT_SECRET",
+    "MS_REFRESH_TOKEN",
+    "MS_TODO_LIST_ID",
+)
+
+
+def config_problems() -> list[str]:
+    """Что не так с окружением. Пустой список — можно стартовать.
+
+    Без проверки бот поднимался с пустыми переменными и падал позже, на
+    первом запросе пользователя, а пустой WEBHOOK_SECRET молча выключал
+    проверку подписи Telegram.
+    """
+    problems = [f"не задан {name}" for name in _REQUIRED_VARS if not globals()[name]]
+    if not TELEGRAM_USER_ID:
+        problems.append("не задан TELEGRAM_USER_ID — бот никому не ответит")
+    if USE_WEBHOOK:
+        if not WEBHOOK_HOST:
+            problems.append("USE_WEBHOOK=true, но не задан WEBHOOK_HOST")
+        if len(WEBHOOK_SECRET or "") < 32:
+            problems.append(
+                "USE_WEBHOOK=true, но WEBHOOK_SECRET короче 32 символов — "
+                "без него любой может слать боту поддельные апдейты"
+            )
+    return problems
