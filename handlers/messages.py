@@ -1,14 +1,20 @@
+import asyncio
+import logging
+import time
+from dataclasses import dataclass, field
+
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 import config
 from db import storage
 from db.storage import register_task_id
 from services import llm, ms_todo, google_calendar
-from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb, unclear_kb, inbox_task_kb
-from handlers.utils import format_task_preview, ask_reminder_if_needed, inbox_created_text
+from handlers.keyboards import confirm_task_kb, calendar_ask_kb, reminder_where_kb, task_actions_kb, unclear_kb
+from handlers.utils import format_task_preview, ask_reminder_if_needed, inbox_count_line
 from handlers import project_flow
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 def user_filter(message: Message) -> bool:
@@ -140,39 +146,118 @@ def _forward_title(message: Message) -> str:
     return first
 
 
+# --- Форварды: всё пересланное — во входящие ---
+#
+# Комментарий к форварду Telegram присылает отдельным сообщением почти
+# одновременно с форвардом (то раньше, то позже), а несколько пересланных
+# постов приходят пачкой. Поэтому форварды копятся в пачку, пока идут подряд,
+# а текст, пришедший рядом с ними, считается комментарием к пачке.
+
+COMMENT_WAIT = 1.0      # сколько текст ждёт, не придёт ли к нему форвард
+FORWARD_SETTLE = 2.0    # пачка закрывается, когда форварды стихли на столько
+COMMENT_MAX_WAIT = 60.0 # голосовой комментарий распознаётся дольше — ждём его
+
+
+@dataclass
+class _ForwardBatch:
+    reply_to: Message
+    last_at: float
+    forwards: list[tuple[str, str]] = field(default_factory=list)  # (название, описание)
+    comment: str | None = None
+    comment_pending: bool = False
+
+
+# Пачки живут в памяти: рестарт посреди двухсекундного окна — редкость,
+# а таблица saved_forwards держала один слот и теряла все форварды, кроме
+# последнего, при пересылке нескольких постов.
+_batches: dict[int, _ForwardBatch] = {}
+
+
+def _short_title(text: str) -> str:
+    first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if len(first) > 80:
+        first = first[:80].rsplit(" ", 1)[0] + "…"
+    return first
+
+
+async def _collect_forward(message: Message):
+    user_id = message.from_user.id
+    item = (_forward_title(message), _build_forward_description(message))
+    batch = _batches.get(user_id)
+    if batch:
+        batch.forwards.append(item)
+        batch.last_at = time.monotonic()
+        return
+
+    batch = _ForwardBatch(reply_to=message, last_at=time.monotonic(), forwards=[item])
+    _batches[user_id] = batch
+    started = time.monotonic()
+    while True:
+        wait = batch.last_at + FORWARD_SETTLE - time.monotonic()
+        if batch.comment_pending and time.monotonic() - started < COMMENT_MAX_WAIT:
+            wait = max(wait, 0.2)
+        if wait <= 0:
+            break
+        await asyncio.sleep(wait)
+    _batches.pop(user_id, None)
+    await _save_forward_batch(batch)
+
+
+async def _save_forward_batch(batch: _ForwardBatch):
+    if batch.comment:
+        notes = [desc for _, desc in batch.forwards if desc]
+        title = _short_title(batch.comment) or "Пересланное сообщение"
+        if title != batch.comment.strip():
+            notes.insert(0, batch.comment.strip())
+        items = [(title, "\n\n———\n\n".join(notes))]
+    else:
+        items = batch.forwards
+
+    saved, failed = [], []
+    for title, desc in items:
+        try:
+            await ms_todo.create_task(title=title, due_date=None, description=desc or None)
+            saved.append(title)
+        except Exception as e:
+            logger.warning("inbox: не удалось записать %r", title, exc_info=True)
+            failed.append(f"{title}: {e}")
+
+    lines = []
+    if len(saved) == 1:
+        lines.append(f"📥 Добавил во входящие: {saved[0]}")
+    elif saved:
+        lines.append(f"📥 Добавил во входящие ({len(saved)}):")
+        lines += [f"• {t}" for t in saved]
+    if failed:
+        lines.append("❌ Не записалось:")
+        lines += [f"• {f}"[:300] for f in failed]
+    if saved:
+        count = await inbox_count_line()
+        if count:
+            lines.append(count)
+    await batch.reply_to.answer("\n".join(lines))
+
+
 async def _handle_new_task(message: Message):
     user_id = message.from_user.id
-    description = None
 
-    # Пересланное сообщение — сохраняем отдельно
     if message.forward_origin:
-        fwd_desc = _build_forward_description(message)
-        await storage.save_forward(user_id, fwd_desc)
+        await _collect_forward(message)
+        return
 
-        # Если уже есть pending задача (комментарий обработался быстрее) — прикрепляем
-        pending = await storage.get_pending_task(user_id)
-        if pending:
-            pending["description"] = fwd_desc
-            await storage.save_pending_task(user_id, pending)
-            preview = format_task_preview(pending)
-            await message.answer(
-                f"📋 Создать задачу?\n\n{preview}",
-                reply_markup=confirm_task_kb(await storage.get_projects_enabled(user_id)),
-            )
-            return
-
-        # Ждём 2 секунды: комментарий к форварду Telegram шлёт отдельным
-        # сообщением, и он может прийти чуть позже. Не пришёл — форвард без
-        # комментария, кладём его во входящие как есть.
-        import asyncio
-        await asyncio.sleep(2)
-        still_saved = await storage.pop_forward(user_id)
-        if still_saved is not None:
-            await _create_task_and_ask_calendar(message, {
-                "title": _forward_title(message),
-                "due_date": None,
-                "description": still_saved or None,
-            })
+    # Текст рядом с форвардом — комментарий к нему: сначала даём форварду
+    # шанс прийти, и только потом тратим время на разбор задачи.
+    await asyncio.sleep(COMMENT_WAIT)
+    batch = _batches.get(user_id)
+    if batch and batch.comment is None and not batch.comment_pending:
+        batch.comment_pending = True
+        try:
+            batch.comment = await _extract_text(message) or None
+        except Exception as e:
+            await message.answer(f"❌ Не удалось распознать голосовое: {e}")
+        finally:
+            batch.comment_pending = False
+            batch.last_at = time.monotonic()
         return
 
     try:
@@ -209,11 +294,6 @@ async def _handle_new_task(message: Message):
 
     task["source_text"] = text
 
-    # Подхватываем сохранённый форвард (мог прийти до или во время LLM вызова)
-    saved_fwd = await storage.pop_forward(user_id)
-    if saved_fwd:
-        task["description"] = saved_fwd
-
     confirm_mode = await storage.get_confirm_mode(user_id)
     need_confirm = (
         confirm_mode == "all"
@@ -246,11 +326,6 @@ async def _create_task_and_ask_calendar(message: Message, task: dict):
         return
 
     key = await register_task_id(created["id"])
-
-    # Без даты — во входящие: ни календаря, ни напоминания, день не трогаем.
-    if not task.get("due_date"):
-        await message.answer(await inbox_created_text(task["title"]), reply_markup=inbox_task_kb(key))
-        return
 
     await message.answer(
         f"✅ Задача создана: {task['title']}",

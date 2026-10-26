@@ -81,9 +81,9 @@ async def parse_task(text: str, today: str | None = None) -> dict:
     raw = response.choices[0].message.content
     data = json.loads(raw)
 
-    # Нет даты — задача уходит во входящие. Исключение: названо время без
-    # дня («в 15:00 позвонить») — это про сегодня, а не про склад.
-    if not data.get("due_date") and data.get("due_time"):
+    # Написанное руками без даты — на сегодня. Во входящие идут только
+    # форварды, и они через parse_task не проходят.
+    if not data.get("due_date"):
         data["due_date"] = today
 
     return data

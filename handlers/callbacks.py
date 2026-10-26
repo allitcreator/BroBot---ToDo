@@ -11,11 +11,9 @@ from handlers.keyboards import (
     confirm_done_kb, confirm_delete_kb, task_actions_kb,
     task_more_kb, reminder_where_kb, reminder_ask_kb,
     project_actions_kb, project_fields_kb, project_confirm_delete_kb,
-    inbox_task_kb,
 )
 from handlers.utils import (
     ask_reminder_if_needed, format_task_preview, rebuild_task_text, format_fire_at, format_event_info,
-    inbox_created_text,
 )
 from handlers import project_flow
 
@@ -28,7 +26,11 @@ user_filter = F.from_user.func(lambda u: u.id == config.TELEGRAM_USER_ID)
 
 @router.callback_query(F.data.startswith("inbox:"), user_filter)
 async def cb_inbox_schedule(callback: CallbackQuery):
-    """Разбор элемента входящих прямо из чата: на сегодня или на завтра."""
+    """Кнопки «Сегодня/Завтра» под входящими в старых сообщениях чата.
+
+    Новые ответы про входящие идут без кнопок (разбор — в мини-аппе), но
+    уже отправленные кнопки в истории Telegram остаются рабочими.
+    """
     _, when, key = callback.data.split(":", 2)
     task_id = await resolve_task_id(key)
     if not task_id:
@@ -73,11 +75,6 @@ async def cb_confirm_create(callback: CallbackQuery):
         return
 
     key = await register_task_id(created["id"])
-
-    if not task.get("due_date"):
-        await callback.message.answer(await inbox_created_text(task["title"]), reply_markup=inbox_task_kb(key))
-        await callback.answer()
-        return
 
     await callback.message.answer(
         f"✅ Задача создана: {task['title']}",

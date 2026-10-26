@@ -95,20 +95,6 @@ def task_actions_kb(key: str) -> InlineKeyboardMarkup:
     ]])
 
 
-def inbox_task_kb(key: str) -> InlineKeyboardMarkup:
-    """Карточка задачи во входящих: быстро назначить день, если правило ошиблось."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📅 Сегодня", callback_data=f"inbox:today:{key}"),
-            InlineKeyboardButton(text="📅 Завтра", callback_data=f"inbox:tomorrow:{key}"),
-        ],
-        [
-            InlineKeyboardButton(text="❌", callback_data=f"task:delete:{key}"),
-            InlineKeyboardButton(text="⚙️ Подробнее", callback_data=f"task:more:{key}"),
-        ],
-    ])
-
-
 # Алиас для совместимости
 def overdue_task_kb(key: str) -> InlineKeyboardMarkup:
     return task_actions_kb(key)

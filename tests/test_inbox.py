@@ -1,9 +1,8 @@
-"""Входящие: всё без даты ложится складом, а не на сегодня.
+"""Входящие — это пересланное.
 
-Раньше бот подставлял сегодняшнюю дату любому сообщению, и «посмотреть
-фильм» вставало в план дня. Теперь нет срока — задача без dueDateTime,
-её разбирают позже в мини-аппе. Дату задают в самом сообщении или
-комментарием к форварду.
+Написанное руками — задача: дата из текста, без даты — сегодня. Любой
+форвард, с комментарием или без, ложится во входящие без срока и
+разбирается в мини-аппе; дата из комментария не учитывается.
 """
 import asyncio
 import json
@@ -12,6 +11,8 @@ import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -37,6 +38,11 @@ def teardown_module():
     run(storage.close_db())
 
 
+class _FakeBot:
+    async def send_chat_action(self, *a, **kw):
+        pass
+
+
 class FakeMessage:
     def __init__(self, text=None, forward_origin=None):
         self.from_user = SimpleNamespace(id=USER)
@@ -46,6 +52,7 @@ class FakeMessage:
         self.caption = None
         self.voice = None
         self.forward_origin = forward_origin
+        self.bot = _FakeBot()
         self.answers = []
         self.markups = []
         self.edits = []
@@ -86,17 +93,11 @@ def _buttons(markup):
     return [b.callback_data for row in markup.inline_keyboard for b in row]
 
 
-# --- разбор текста ---
+# --- разбор текста, написанного руками ---
 
-def test_без_даты_задача_остаётся_без_даты(monkeypatch):
-    _fake_llm(monkeypatch, {"title": "посмотреть фильм", "due_date": None, "due_time": None})
-    task = run(llm.parse_task("посмотреть фильм", today="2026-10-26"))
-    assert task["due_date"] is None
-
-
-def test_время_без_даты_значит_сегодня(monkeypatch):
-    _fake_llm(monkeypatch, {"title": "позвонить", "due_date": None, "due_time": "15:00"})
-    task = run(llm.parse_task("в 15:00 позвонить", today="2026-10-26"))
+def test_без_даты_задача_на_сегодня(monkeypatch):
+    _fake_llm(monkeypatch, {"title": "купить молоко", "due_date": None, "due_time": None})
+    task = run(llm.parse_task("купить молоко", today="2026-10-26"))
     assert task["due_date"] == "2026-10-26"
 
 
@@ -104,11 +105,6 @@ def test_явная_дата_сохраняется(monkeypatch):
     _fake_llm(monkeypatch, {"title": "позвонить", "due_date": "2026-10-27", "due_time": None})
     task = run(llm.parse_task("завтра позвонить", today="2026-10-26"))
     assert task["due_date"] == "2026-10-27"
-
-
-def test_превью_без_даты_показывает_входящие():
-    preview = utils.format_task_preview({"title": "посмотреть фильм", "due_date": None})
-    assert "Во входящие" in preview
 
 
 # --- срез входящих ---
@@ -125,7 +121,14 @@ def test_входящие_это_открытые_задачи_без_срока
     assert [t["id"] for t in run(ms_todo.get_inbox_tasks())] == ["a"]
 
 
-# --- создание из чата ---
+# --- поток сообщений ---
+
+@pytest.fixture
+def fast(monkeypatch):
+    """Короткие окна ожидания, чтобы тесты не спали секундами."""
+    monkeypatch.setattr(messages, "COMMENT_WAIT", 0.05)
+    monkeypatch.setattr(messages, "FORWARD_SETTLE", 0.15)
+
 
 def _capture_create(monkeypatch):
     created = []
@@ -142,64 +145,129 @@ def _capture_create(monkeypatch):
     return created
 
 
-def test_задача_без_даты_уходит_во_входящие_без_вопросов(monkeypatch):
+def _no_llm(monkeypatch):
+    async def boom(*a, **kw):
+        raise AssertionError("для форварда LLM не нужен")
+
+    monkeypatch.setattr(llm, "classify_message", boom)
+    monkeypatch.setattr(llm, "parse_task", boom)
+
+
+def _fwd(text):
+    return FakeMessage(text, forward_origin=SimpleNamespace(type="user", chat=None))
+
+
+async def _later(delay, coro):
+    await asyncio.sleep(delay)
+    await coro
+
+
+def test_написанное_руками_без_даты_на_сегодня(monkeypatch, fast):
     created = _capture_create(monkeypatch)
-    msg = FakeMessage("посмотреть фильм")
-    task = {"title": "посмотреть фильм", "due_date": None, "is_event": True}
+    monkeypatch.setattr(storage, "get_projects_enabled", _async(False))
+    monkeypatch.setattr(storage, "get_confirm_mode", _async("off"))
+    _fake_llm(monkeypatch, {"title": "купить молоко", "due_date": None, "due_time": None})
 
-    run(messages._create_task_and_ask_calendar(msg, task))
+    run(messages._handle_new_task(FakeMessage("купить молоко")))
 
-    assert created == [{"title": "посмотреть фильм", "due_date": None, "description": None}]
-    assert len(msg.answers) == 1, "ни календаря, ни напоминания у входящих"
-    assert "Во входящих" in msg.answers[0] and "3" in msg.answers[0]
-    buttons = _buttons(msg.markups[0])
-    assert any(b.startswith("inbox:today:") for b in buttons)
-    assert any(b.startswith("inbox:tomorrow:") for b in buttons)
+    assert created[0]["due_date"] == config.local_today().isoformat()
 
 
-def test_подтверждённая_задача_без_даты_тоже_во_входящие(monkeypatch):
+def test_форвард_без_комментария_во_входящие_без_кнопок(monkeypatch, fast):
     created = _capture_create(monkeypatch)
-    run(storage.save_pending_task(USER, {"title": "почитать про sqlite", "due_date": None}))
-    cb = FakeCallback("confirm:create")
-
-    run(callbacks.cb_confirm_create(cb))
-
-    assert created[0]["due_date"] is None
-    assert "Во входящих" in cb.message.answers[0]
-
-
-def test_форвард_без_комментария_сразу_во_входящие(monkeypatch):
-    created = _capture_create(monkeypatch)
-
-    async def no_sleep(_):
-        return None
-
-    monkeypatch.setattr(asyncio, "sleep", no_sleep)
-    origin = SimpleNamespace(type="user", chat=None)
-    msg = FakeMessage("Статья про индексы в Postgres\nи ещё много текста", forward_origin=origin)
+    _no_llm(monkeypatch)
+    msg = _fwd("Статья про индексы в Postgres\nи ещё много текста")
 
     run(messages._handle_new_task(msg))
+
+    assert created == [{
+        "title": "Статья про индексы в Postgres", "due_date": None,
+        "description": "Статья про индексы в Postgres\nи ещё много текста",
+    }]
+    assert "Добавил во входящие" in msg.answers[-1]
+    assert "Всего во входящих: 3" in msg.answers[-1]
+    assert msg.markups[-1] is None
+
+
+def test_форвард_без_текста_получает_заглушку(monkeypatch, fast):
+    created = _capture_create(monkeypatch)
+    _no_llm(monkeypatch)
+    run(messages._handle_new_task(_fwd(None)))
+    assert created[0]["title"] == "Пересланное сообщение"
+
+
+def test_комментарий_и_форвард_одна_задача_во_входящих(monkeypatch, fast):
+    created = _capture_create(monkeypatch)
+    _no_llm(monkeypatch)
+    comment = FakeMessage("прочитать завтра про индексы")
+    forward = _fwd("Статья про индексы")
+
+    async def scenario():
+        await asyncio.gather(
+            messages._handle_new_task(comment),
+            _later(0.01, messages._handle_new_task(forward)),
+        )
+
+    run(scenario())
 
     assert len(created) == 1
-    assert created[0]["due_date"] is None
-    assert created[0]["title"] == "Статья про индексы в Postgres"
-    assert "индексы" in created[0]["description"]
-    assert not any("Напиши что сделать" in a for a in msg.answers)
-    assert run(storage.pop_forward(USER)) is None, "форвард не должен висеть в БД"
+    assert created[0]["title"] == "прочитать завтра про индексы"
+    assert created[0]["due_date"] is None, "дата из комментария не учитывается"
+    assert "Статья про индексы" in created[0]["description"]
 
 
-def test_форвард_без_текста_получает_заглушку_в_названии(monkeypatch):
+def test_форвард_раньше_комментария(monkeypatch, fast):
     created = _capture_create(monkeypatch)
+    _no_llm(monkeypatch)
 
-    async def no_sleep(_):
-        return None
+    async def scenario():
+        await asyncio.gather(
+            messages._handle_new_task(_fwd("Пост")),
+            _later(0.01, messages._handle_new_task(FakeMessage("глянуть"))),
+        )
 
-    monkeypatch.setattr(asyncio, "sleep", no_sleep)
-    msg = FakeMessage(None, forward_origin=SimpleNamespace(type="user", chat=None))
+    run(scenario())
+    assert [c["title"] for c in created] == ["глянуть"]
 
-    run(messages._handle_new_task(msg))
 
-    assert created[0]["title"] == "Пересланное сообщение"
+def test_несколько_форвардов_без_комментария_отдельными_задачами(monkeypatch, fast):
+    created = _capture_create(monkeypatch)
+    _no_llm(monkeypatch)
+    msgs = [_fwd(f"Пост {i}") for i in range(3)]
+
+    async def scenario():
+        await asyncio.gather(*(_later(0.01 * i, messages._handle_new_task(m)) for i, m in enumerate(msgs)))
+
+    run(scenario())
+
+    assert sorted(c["title"] for c in created) == ["Пост 0", "Пост 1", "Пост 2"]
+    replies = [a for m in msgs for a in m.answers]
+    assert len(replies) == 1, "один ответ на пачку"
+    assert "Пост 0" in replies[0] and "Пост 2" in replies[0]
+
+
+def test_несколько_форвардов_с_комментарием_одна_задача(monkeypatch, fast):
+    created = _capture_create(monkeypatch)
+    _no_llm(monkeypatch)
+
+    async def scenario():
+        await asyncio.gather(
+            messages._handle_new_task(FakeMessage("про индексы")),
+            _later(0.01, messages._handle_new_task(_fwd("Пост A"))),
+            _later(0.02, messages._handle_new_task(_fwd("Пост B"))),
+        )
+
+    run(scenario())
+
+    assert len(created) == 1
+    assert created[0]["title"] == "про индексы"
+    assert "Пост A" in created[0]["description"] and "Пост B" in created[0]["description"]
+
+
+def _async(value):
+    async def f(*a, **kw):
+        return value
+    return f
 
 
 def test_skip_чистит_сохранённый_форвард():
