@@ -149,7 +149,8 @@ async def complete_task(request: web.Request) -> web.Response:
 
 
 async def move_tasks(request: web.Request) -> web.Response:
-    """Массовый перенос: просроченные или сегодняшние — на сегодня или завтра.
+    """Массовый перенос: просроченные или сегодняшние — на сегодня или завтра,
+    либо выбранные ключи (`keys`) — на любой день.
 
     Сбой на одной задаче не останавливает остальные: в ответе итог
     «перенесено X из Y» и названия тех, что не удалось.
@@ -158,17 +159,35 @@ async def move_tasks(request: web.Request) -> web.Response:
         body = await request.json()
     except ValueError:
         body = {}
-    scope, to = body.get("scope"), body.get("to")
-    if scope not in ("overdue", "today") or to not in ("today", "tomorrow") or (scope, to) == ("today", "today"):
-        return web.json_response({"error": "bad_move", "message": "scope: overdue|today, to: today|tomorrow"}, status=400)
-
+    if not isinstance(body, dict):
+        body = {}
     today = config.local_today()
-    target = today + timedelta(days=1 if to == "tomorrow" else 0)
-    tasks = await ms_todo.get_all_tasks()
-    if scope == "overdue":
-        chosen = [t for t in tasks if (d := ms_todo.task_local_date(t)) and d < today.isoformat()]
+
+    if "keys" in body:
+        # Выбранные задачи (ритуал): to — today, tomorrow или ГГГГ-ММ-ДД.
+        keys = body["keys"]
+        target = _parse_day(str(body.get("to", "")))
+        if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys) or target is None:
+            return web.json_response({"error": "bad_move", "message": "keys: [ключи], to: today|tomorrow|ГГГГ-ММ-ДД"}, status=400)
+        by_id = {t["id"]: t for t in await ms_todo.get_all_tasks()}
+        chosen = []
+        for key in keys:
+            task_id = await storage.resolve_task_id(key)
+            if not task_id:
+                raise web.HTTPNotFound(
+                    text='{"error": "not_found", "message": "Задача не найдена"}', content_type="application/json",
+                )
+            chosen.append(by_id.get(task_id) or {"id": task_id})
     else:
-        chosen = [t for t in tasks if ms_todo.task_local_date(t) == today.isoformat()]
+        scope, to = body.get("scope"), body.get("to")
+        if scope not in ("overdue", "today") or to not in ("today", "tomorrow") or (scope, to) == ("today", "today"):
+            return web.json_response({"error": "bad_move", "message": "scope: overdue|today, to: today|tomorrow"}, status=400)
+        target = today + timedelta(days=1 if to == "tomorrow" else 0)
+        tasks = await ms_todo.get_all_tasks()
+        if scope == "overdue":
+            chosen = [t for t in tasks if (d := ms_todo.task_local_date(t)) and d < today.isoformat()]
+        else:
+            chosen = [t for t in tasks if ms_todo.task_local_date(t) == today.isoformat()]
 
     # Время на задачу: {ключ: "ЧЧ:ММ" | null}. Нет ключа — то же время.
     raw_times = body.get("times") or {}
@@ -184,7 +203,7 @@ async def move_tasks(request: web.Request) -> web.Response:
     moved, failed, warnings = 0, [], set()
     for t in chosen:
         try:
-            warnings.update(await task_ops.reschedule(t["id"], target, times.get(t["id"], task_ops.KEEP), task=t))
+            warnings.update(await task_ops.reschedule(t["id"], target, times.get(t["id"], task_ops.KEEP), task=t if "title" in t else None))
             moved += 1
         except Exception:
             logger.warning("mini-app move: %s", t["id"], exc_info=True)
@@ -275,7 +294,7 @@ async def delete_task(request: web.Request) -> web.Response:
 
 
 def setup(app: web.Application) -> None:
-    from api import more_routes
+    from api import more_routes, ritual_routes
 
     app.middlewares.append(error_middleware)
     app.middlewares.append(auth_middleware)
@@ -289,3 +308,4 @@ def setup(app: web.Application) -> None:
     app.router.add_get("/api/tasks/{key}/time", get_task_time)
     app.router.add_delete("/api/tasks/{key}", delete_task)
     more_routes.setup(app)
+    ritual_routes.setup(app)

@@ -307,6 +307,7 @@ def test_кнопка_позже_в_чате(env, monkeypatch):
 
     async def fake_snooze(bot, kind, day, now):
         called.append((kind, day))
+        return True
 
     monkeypatch.setattr(rituals, "snooze", fake_snooze)
     cb = FakeCallback(f"ritual:snooze:morning:{TUE.isoformat()}", env.bot)
@@ -350,3 +351,24 @@ def test_команда_ritual_шлёт_сводку_сразу(env):
     msg = Msg()
     env.run(commands.cmd_ritual(msg, SimpleNamespace(args="evening")))
     assert "нечего" in msg.answers[0]
+
+
+@pytest.mark.parametrize("status", ["failed", "sending"])
+def test_пройденный_ритуал_не_повторяет_сбойную_сводку(status):
+    now = at(TUE, "09:50")
+    runs = {"morning": run_(status, updated_at=now - timedelta(minutes=20), done_at=now - timedelta(minutes=1))}
+    assert rituals.due_rituals(now, DEFAULTS, runs) == []
+
+
+def test_без_адреса_мини_аппа_сводки_не_шлются(env, monkeypatch):
+    monkeypatch.setattr(config, "MINIAPP_URL", "")
+    env.run(rituals.tick(env.bot, at(TUE, "09:30")))
+    assert env.bot.sent == []
+    assert env.run(storage.get_ritual_run("morning", TUE.isoformat())) is None
+
+
+def test_позже_без_сводки_честно_отвечает(env):
+    from handlers import callbacks
+    cb = FakeCallback(f"ritual:snooze:morning:{TUE.isoformat()}", env.bot)
+    env.run(callbacks.cb_ritual(cb))
+    assert "час" not in cb.answers[0]

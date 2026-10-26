@@ -31,8 +31,10 @@ async def cb_ritual(callback: CallbackQuery):
         await callback.answer()
         return
     if action == "snooze":
-        await rituals.snooze(callback.bot, kind, day, datetime.now(ZoneInfo(config.USER_TIMEZONE)))
-        await callback.answer("Напомню через час")
+        if await rituals.snooze(callback.bot, kind, day, datetime.now(ZoneInfo(config.USER_TIMEZONE))):
+            await callback.answer("Напомню через час")
+        else:
+            await callback.answer("Эта сводка уже неактуальна")
     elif action == "dismiss":
         await rituals.dismiss(callback.bot, kind, day)
         await callback.answer("До завтра")

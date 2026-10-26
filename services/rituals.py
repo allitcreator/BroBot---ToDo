@@ -41,12 +41,14 @@ def due_rituals(now: datetime, settings: dict, runs: dict) -> list[str]:
             continue
         start = datetime.combine(now.date(), time.fromisoformat(settings[f"{kind}_time"]), tzinfo=now.tzinfo)
         run = runs.get(kind)
+        if run and run["done_at"] is not None:
+            continue  # ритуал уже пройден в мини-аппе — сводка не нужна
         # После «Позже» окно отсчитывается от времени повтора.
         end = (run["snooze_at"] if run and run["snoozed"] else start) + WINDOW
         if run is None:
             ok = start <= now < end
         elif run["status"] == "snoozed":
-            ok = run["done_at"] is None and run["snooze_at"] <= now < end
+            ok = run["snooze_at"] <= now < end
         elif run["status"] == "failed":
             ok = now < end and now - run["updated_at"] >= RETRY
         elif run["status"] == "sending":
@@ -102,6 +104,16 @@ def morning_slices(tasks: list[dict], today: date, stuck_days: int) -> dict:
 def meetings(events: list[dict], linked: set[str]) -> list[dict]:
     """Встречи дня: события календаря, кроме созданных из задач."""
     return [e for e in events if e.get("id") not in linked and e.get("status") != "cancelled"]
+
+
+def median_per_day(counts: list[int]) -> int | None:
+    """Медиана закрытий по дням с закрытиями, округлённая до целого."""
+    if not counts:
+        return None
+    xs = sorted(counts)
+    mid = len(xs) // 2
+    value = xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
+    return int(value + 0.5)
 
 
 # --- тексты ---
@@ -217,6 +229,8 @@ async def _send(bot, kind: str, day: str, run: dict | None, settings: dict, now:
 
 async def tick(bot, now: datetime | None = None):
     """Один проход планировщика: шлёт сводки, которым пора."""
+    if not config.MINIAPP_URL:
+        return  # без мини-аппа кнопке сводки некуда вести
     now = now or datetime.now(ZoneInfo(config.USER_TIMEZONE))
     settings = await storage.get_ritual_settings(config.TELEGRAM_USER_ID)
     day = now.date().isoformat()
@@ -234,15 +248,19 @@ async def _delete_summary(bot, run: dict | None):
             logger.info("rituals: summary message not deleted", exc_info=True)
 
 
-async def snooze(bot, kind: str, day: str, now: datetime):
-    """«Позже»: убрать сводку и прислать её ещё раз через час, один раз."""
+async def snooze(bot, kind: str, day: str, now: datetime) -> bool:
+    """«Позже»: убрать сводку и прислать её ещё раз через час, один раз.
+
+    Ложь — откладывать нечего (сводка не отправлена или уже отложена).
+    """
     run = await storage.get_ritual_run(kind, day)
     if not run or run["status"] != "sent" or run["snoozed"]:
-        return
+        return False
     await _delete_summary(bot, run)
     await storage.update_ritual_run(
         kind, day, status="snoozed", updated_at=now, snooze_at=now + SNOOZE, snoozed=1, message_id=None,
     )
+    return True
 
 
 async def dismiss(bot, kind: str, day: str):

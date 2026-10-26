@@ -68,6 +68,28 @@ export type Task = {
   calendar: boolean;
 };
 
+// Утренний разбор: шаги и план дня.
+export type RitualTask = Task & { created?: string | null; time?: string | null };
+export type Morning = { overdue: RitualTask[]; stuck: RitualTask[]; inbox: RitualTask[] };
+export type Plan = { events: { time: string | null; title: string }[] | null; today: RitualTask[]; norm: number | null };
+
+export function getMorning(): Promise<Morning> {
+  return call("GET", "/api/ritual/morning");
+}
+
+export function getPlan(): Promise<Plan> {
+  return call("GET", "/api/ritual/plan");
+}
+
+export function ritualDone(kind: "morning" | "evening"): Promise<{ ok: true }> {
+  return call("POST", `/api/ritual/${kind}/done`);
+}
+
+// Перенос выбранных задач: to — today, tomorrow или ГГГГ-ММ-ДД.
+export function moveKeys(keys: string[], to: string, times?: Times): Promise<MoveResult> {
+  return call("POST", "/api/tasks/move", times ? { keys, to, times } : { keys, to });
+}
+
 export type Summary = { inbox: number; today: number; overdue: number };
 export type MoveResult = { moved: number; total: number; failed: string[]; warnings?: MoveWarning[] };
 // Время по ключу задачи; ключа нет — то же время.
