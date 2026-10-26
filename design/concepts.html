@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ToDoBOT — 4 концепции мини-аппа</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b0d10; color: #e8eaed; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  .page { padding: 32px 40px 80px; max-width: 1400px; }
+  .page > h1 { margin: 0 0 6px; font-size: 26px; }
+  .page > p.lead { margin: 0 0 28px; color: #8b949e; max-width: 960px; }
+  .concept { margin-bottom: 64px; }
+  .concept h2 { margin: 0 0 2px; font-size: 21px; }
+  .concept .from { color: #6cb6ff; font-size: 13px; margin-bottom: 8px; }
+  .concept .idea { color: #9da7b3; margin: 0 0 18px; max-width: 980px; }
+  .concept .idea b { color: #e8eaed; font-weight: 600; }
+  .phones { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .cap { color: #8b949e; font-size: 13px; margin-top: 10px; text-align: center; width: 360px; }
+
+  /* ----- общий «телефон» в теме Telegram (iOS, тёмная) ----- */
+  .phone { width: 360px; height: 740px; border-radius: 44px; overflow: hidden; position: relative; border: 9px solid #222428;
+    box-shadow: 0 24px 70px rgba(0,0,0,.55); background: #000; color: #fff; }
+  .tgbar { height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 14px 8px; background: #1c1c1d; }
+  .tgbar .close { color: #3e88f7; font-size: 15px; }
+  .tgbar .ttl { font-weight: 600; font-size: 15px; text-align: center; line-height: 1.1; }
+  .tgbar .ttl small { display: block; color: #8d8e93; font-weight: 400; font-size: 11px; }
+  .tgbar .more { width: 26px; height: 26px; border-radius: 50%; border: 1.6px solid #3e88f7; display: flex; align-items: center; justify-content: center; color: #3e88f7; font-size: 14px; line-height: 1; }
+  .content { position: absolute; top: 54px; left: 0; right: 0; bottom: 0; overflow: hidden; }
+  .mainbtn { position: absolute; left: 12px; right: 12px; bottom: 24px; height: 50px; border-radius: 12px; background: #3e88f7; color: #fff; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; }
+  .mainbtn.sec { background: #2c2c2e; color: #3e88f7; }
+  .home { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); width: 120px; height: 4px; border-radius: 3px; background: #fff; opacity: .85; }
+
+  svg.i { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  svg.s { width: 16px; height: 16px; }
+  .muted { color: #8d8e93; }
+  .blue { color: #3e88f7; }
+  .red { color: #ff453a; }
+
+  /* чекбокс-кружок */
+  .ck { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #48484a; flex: none; display: flex; align-items: center; justify-content: center; }
+  .ck.on { background: #3e88f7; border-color: #3e88f7; }
+  .ck.on::after { content: ""; width: 10px; height: 6px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px,-1px); }
+  .ck.red { border-color: #ff453a; }
+
+  /* ============ A. Мой день ============ */
+  .a .head { padding: 14px 18px 6px; }
+  .a .head .date { color: #8d8e93; font-size: 13px; }
+  .a .head .date::first-letter { text-transform: uppercase; }
+  .a .head h3 { margin: 2px 0 0; font-size: 30px; font-weight: 700; letter-spacing: -.3px; }
+  .a .events { margin: 10px 18px 6px; padding: 8px 0 4px; border-top: .5px solid #2c2c2e; }
+  .a .ev { display: flex; gap: 10px; font-size: 13px; color: #8d8e93; padding: 2px 0; }
+  .a .ev b { color: #c7c7cc; font-weight: 500; }
+  .a .ev .bar { width: 3px; border-radius: 2px; background: #30d158; }
+  .a .list { padding: 4px 18px; }
+  .a .t { display: flex; gap: 14px; align-items: flex-start; padding: 11px 0; }
+  .a .t .tx { flex: 1; border-bottom: .5px solid #2c2c2e; padding-bottom: 11px; margin-bottom: -11px; }
+  .a .t .tx div { font-size: 16px; }
+  .a .t .tx small { color: #8d8e93; font-size: 13px; display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+  .a .t.done .tx div { color: #636366; text-decoration: line-through; }
+  .a .sugg { margin: 10px 18px 0; background: #1c1c1e; border-radius: 14px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+  .a .sugg .bulb { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,214,10,.15); color: #ffd60a; display: flex; align-items: center; justify-content: center; }
+  .a .sugg div b { display: block; font-weight: 600; }
+  .a .sugg div span { color: #8d8e93; font-size: 13px; }
+  .a .sugg .chev { margin-left: auto; color: #48484a; }
+  /* лист предложений */
+  .a .dim { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+  .a .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 150px; background: #1c1c1e; border-radius: 14px 14px 0 0; padding: 8px 0 0; }
+  .a .grab { width: 36px; height: 5px; border-radius: 3px; background: #48484a; margin: 0 auto 10px; }
+  .a .sheet h4 { margin: 0 18px 2px; font-size: 20px; }
+  .a .sheet .hint { margin: 0 18px 12px; color: #8d8e93; font-size: 13px; }
+  .a .sgh { color: #8d8e93; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; margin: 12px 18px 4px; }
+  .a .sg { display: flex; align-items: center; gap: 12px; padding: 10px 18px; }
+  .a .sg .tx { flex: 1; min-width: 0; }
+  .a .sg .tx div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a .sg .tx small { color: #8d8e93; font-size: 12px; }
+  .a .sg .add { width: 30px; height: 30px; border-radius: 50%; background: rgba(62,136,247,.16); color: #3e88f7; display: flex; align-items: center; justify-content: center; }
+  .a .sg .more2 { color: #8d8e93; }
+
+  /* ============ B. Утренний разбор ============ */
+  .b .steps { display: flex; gap: 6px; padding: 12px 18px 0; }
+  .b .steps i { flex: 1; height: 4px; border-radius: 2px; background: #2c2c2e; }
+  .b .steps i.on { background: #3e88f7; }
+  .b .steplbl { padding: 10px 18px 0; color: #8d8e93; font-size: 13px; }
+  .b h3 { margin: 2px 18px 14px; font-size: 24px; }
+  .b .card { margin: 0 18px; background: #1c1c1e; border-radius: 18px; padding: 18px; min-height: 250px; display: flex; flex-direction: column; position: relative; }
+  .b .card .src { display: flex; align-items: center; gap: 8px; color: #8d8e93; font-size: 13px; }
+  .b .card .src .av { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg,#5ac8fa,#3e88f7); }
+  .b .card h5 { margin: 12px 0 6px; font-size: 20px; line-height: 1.25; }
+  .b .card p { margin: 0; color: #aeaeb2; font-size: 14px; }
+  .b .card .lnk { margin-top: auto; color: #3e88f7; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .b .card .peek { position: absolute; left: 14px; right: 14px; bottom: -8px; height: 8px; background: #141416; border-radius: 0 0 14px 14px; z-index: -1; }
+  .b .acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 18px 18px 0; }
+  .b .acts div { background: #1c1c1e; border-radius: 14px; padding: 12px 0 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #c7c7cc; }
+  .b .acts div.pri { background: rgba(62,136,247,.16); color: #3e88f7; }
+  .b .acts div.del { color: #ff453a; }
+  .b .acts div.prj { color: #ffd60a; }
+  .b .left { text-align: center; color: #636366; font-size: 12px; margin-top: 12px; }
+  .b .sum { margin: 0 18px; }
+  .b .sum .row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: .5px solid #2c2c2e; }
+  .b .sum .row .ic { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+  .b .sum .row b { font-weight: 600; }
+  .b .sum .row > span:last-child { margin-left: auto; color: #8d8e93; }
+  .b .plan { margin: 18px 18px 0; }
+  .b .plan .t { display: flex; gap: 12px; align-items: center; padding: 9px 0; }
+  .b .big { font-size: 44px; font-weight: 800; letter-spacing: -1px; margin: 4px 18px 0; }
+
+  /* ============ C. Неделя-блокнот ============ */
+  .c .strip { display: flex; justify-content: space-between; padding: 12px 14px 10px; border-bottom: .5px solid #2c2c2e; }
+  .c .strip div { width: 40px; text-align: center; font-size: 11px; color: #8d8e93; }
+  .c .strip div b { display: block; font-size: 17px; color: #fff; font-weight: 500; margin: 3px auto 4px; width: 34px; height: 34px; line-height: 34px; border-radius: 50%; }
+  .c .strip div.on b { background: #3e88f7; }
+  .c .strip div i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #636366; margin: 0 auto; }
+  .c .strip div i.n { background: transparent; }
+  .c .strip div i.r { background: #ff453a; }
+  .c .feed { padding: 0 18px; }
+  .c .day { padding: 12px 0 4px; }
+  .c .day .dh { display: flex; align-items: baseline; gap: 8px; border-bottom: 1px solid #2c2c2e; padding-bottom: 6px; }
+  .c .day .dh b { font-size: 17px; }
+  .c .day .dh span { color: #8d8e93; font-size: 13px; }
+  .c .day .dh em { margin-left: auto; font-style: normal; color: #636366; font-size: 13px; }
+  .c .day .t { display: flex; gap: 12px; align-items: center; padding: 9px 0; border-bottom: .5px solid #1f1f21; }
+  .c .day .t .ck { width: 20px; height: 20px; }
+  .c .day .t.drag { background: #2c2c2e; border-radius: 10px; padding: 9px 10px; margin: 2px -10px; box-shadow: 0 10px 26px rgba(0,0,0,.6); transform: rotate(-1.2deg); border-bottom: 0; }
+  .c .day .t small { margin-left: auto; color: #8d8e93; display: flex; gap: 4px; }
+  .c .day .empty { color: #3a3a3c; padding: 8px 0; font-size: 14px; }
+  .c .someday { position: absolute; left: 0; right: 0; bottom: 0; background: #1c1c1e; border-radius: 16px 16px 0 0; padding: 10px 18px 34px; box-shadow: 0 -10px 30px rgba(0,0,0,.5); }
+  .c .someday .grab { width: 36px; height: 5px; border-radius: 3px; background: #48484a; margin: 0 auto 8px; }
+  .c .someday .hd { display: flex; align-items: center; gap: 8px; }
+  .c .someday .hd b { font-size: 16px; }
+  .c .someday .hd .cnt { background: #3e88f7; color: #fff; border-radius: 10px; font-size: 12px; padding: 0 7px; }
+  .c .someday .hd span { margin-left: auto; color: #8d8e93; font-size: 13px; }
+  .c .chips { display: flex; gap: 8px; margin-top: 10px; overflow: hidden; }
+  .c .chips div { background: #2c2c2e; border-radius: 10px; padding: 8px 10px; font-size: 13px; white-space: nowrap; }
+
+  /* ============ D. Лента дня ============ */
+  .d .head { padding: 12px 18px 4px; display: flex; align-items: baseline; justify-content: space-between; }
+  .d .head h3 { margin: 0; font-size: 26px; }
+  .d .head span { color: #8d8e93; font-size: 13px; }
+  .d .anytime { margin: 8px 18px 4px; background: #1c1c1e; border-radius: 14px; padding: 6px 14px; }
+  .d .anytime .lbl { color: #8d8e93; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; padding: 6px 0 2px; }
+  .d .anytime .t { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: .5px solid #2c2c2e; }
+  .d .anytime .t:last-child { border-bottom: 0; }
+  .d .anytime .t .ck { width: 20px; height: 20px; }
+  .d .anytime .t small { margin-left: auto; color: #8d8e93; }
+  .d .tl { position: relative; margin: 10px 18px 0 18px; height: 380px; }
+  .d .hr { position: absolute; left: 0; right: 0; display: flex; gap: 10px; align-items: center; color: #636366; font-size: 11px; }
+  .d .hr::after { content: ""; flex: 1; height: .5px; background: #2c2c2e; }
+  .d .blk { position: absolute; left: 46px; right: 0; border-radius: 10px; padding: 7px 10px; font-size: 13px; }
+  .d .blk b { display: block; font-size: 14px; font-weight: 600; }
+  .d .blk.cal { background: rgba(48,209,88,.16); border-left: 3px solid #30d158; color: #d1f5da; }
+  .d .blk.task { background: rgba(62,136,247,.18); border-left: 3px solid #3e88f7; color: #d6e6ff; display: flex; gap: 10px; align-items: center; }
+  .d .blk.task .ck { width: 18px; height: 18px; border-color: #3e88f7; }
+  .d .blk.free { border: 1.5px dashed #3a3a3c; color: #636366; text-align: center; }
+  .d .now { position: absolute; left: 36px; right: 0; height: 2px; background: #ff453a; }
+  .d .now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: #ff453a; }
+  .d .seg { display: flex; margin: 8px 18px 0; background: #1c1c1e; border-radius: 9px; padding: 2px; }
+  .d .seg span { flex: 1; text-align: center; font-size: 13px; padding: 6px 0; border-radius: 7px; color: #c7c7cc; }
+  .d .seg span.on { background: #3a3a3c; color: #fff; font-weight: 600; }
+
+  /* общая нижняя навигация для A/C/D (сегменты, а не эмодзи) */
+  .nav { position: absolute; left: 0; right: 0; bottom: 0; height: 84px; background: rgba(28,28,29,.96); border-top: .5px solid #2c2c2e; display: flex; padding-top: 7px; }
+  .nav div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: #8d8e93; position: relative; }
+  .nav div.on { color: #3e88f7; }
+  .nav .bd { position: absolute; top: -3px; left: 52%; background: #ff453a; color: #fff; border-radius: 9px; font-size: 11px; line-height: 16px; padding: 0 5px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+    <symbol id="i-week" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8.5 14h1M11.5 14h1M14.5 14h1M8.5 17h1M11.5 17h1"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 15H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+  <h1>ToDoBOT — 4 концепции мини-аппа</h1>
+  <p class="lead">Каждая концепция выросла из конкретного аналога и по-разному отвечает на один вопрос: как прожить «закинул в чат → разобрал → сделал». Оформление везде одно — родное для Telegram: цвета темы, системная шапка с «Закрыть», главная синяя кнопка снизу, линейные иконки вместо эмодзи.</p>
+
+  <!-- ================= A ================= -->
+  <div class="concept">
+    <h2>A. Мой день</h2>
+    <div class="from">Аналоги: Microsoft To Do «Мой день» + Things 3 «Today»</div>
+    <p class="idea">Главный экран — <b>одна осознанная страница дня</b>: сверху мелко события из Google Календаря, ниже задачи, выполненные тихо уходят вниз зачёркнутыми. Входящие и просроченные — не отдельная вкладка, а <b>«предложения»</b> под лампочкой: открыл лист, нажал «＋» — задача в дне. Главная кнопка Telegram внизу всегда про одно действие. Минимум вкладок: День · Неделя · Проекты.</p>
+    <div class="phones">
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">ToDoBOT<small>мини-приложение</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content a">
+            <div class="head"><div class="date">вторник, 27 октября</div><h3>Мой день</h3></div>
+            <div class="events">
+              <div class="ev"><span class="bar"></span><b>11:00</b> Созвон с командой</div>
+              <div class="ev"><span class="bar" style="background:#bf5af2"></span><b>16:30</b> Стоматолог</div>
+            </div>
+            <div class="list">
+              <div class="t"><span class="ck"></span><div class="tx"><div>Позвонить в сервис</div><small><svg class="i s"><use href="#i-bell"/></svg> 15:00</small></div></div>
+              <div class="t"><span class="ck"></span><div class="tx"><div>Отправить квартальный отчёт</div></div></div>
+              <div class="t"><span class="ck"></span><div class="tx"><div>Купить молоко</div></div></div>
+              <div class="t done"><span class="ck on"></span><div class="tx"><div>Полить цветы</div></div></div>
+            </div>
+            <div class="sugg"><span class="bulb"><svg class="i"><use href="#i-bulb"/></svg></span><div><b>Предложения · 4</b><span>3 из входящих, 1 просроченная</span></div><svg class="i chev"><use href="#i-chev"/></svg></div>
+            <div class="nav">
+              <div class="on"><svg class="i"><use href="#i-sun"/></svg>День</div>
+              <div><svg class="i"><use href="#i-week"/></svg>Неделя</div>
+              <div><svg class="i"><use href="#i-bulb"/></svg>Проекты</div>
+              <div><svg class="i"><use href="#i-gear"/></svg>Ещё</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">День: события сверху, задачи, плашка предложений</div>
+      </div>
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">ToDoBOT<small>мини-приложение</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content a">
+            <div class="head" style="opacity:.35"><div class="date">вторник, 27 октября</div><h3>Мой день</h3></div>
+            <div class="dim"></div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <h4>Предложения</h4>
+              <div class="hint">Нажми ＋, чтобы взять в сегодня. Свайп влево — завтра, дата, удалить.</div>
+              <div class="sgh">Просрочено</div>
+              <div class="sg"><span class="ck red"></span><div class="tx"><div>Оплатить интернет</div><small class="red">вчера</small></div><span class="add"><svg class="i s"><use href="#i-plus"/></svg></span></div>
+              <div class="sgh">Входящие — из чата</div>
+              <div class="sg"><span class="ck"></span><div class="tx"><div>Статья про индексы в Postgres</div><small>переслано из канала · 2 дня</small></div><span class="add"><svg class="i s"><use href="#i-plus"/></svg></span></div>
+              <div class="sg"><span class="ck"></span><div class="tx"><div>Доклад про SQLite</div><small>ссылка youtube.com · вчера</small></div><span class="add"><svg class="i s"><use href="#i-plus"/></svg></span></div>
+              <div class="sg"><span class="ck"></span><div class="tx"><div>Автоматизировать отчёты</div><small>сегодня</small></div><span class="add"><svg class="i s"><use href="#i-plus"/></svg></span></div>
+              <div class="mainbtn">Взять всё в сегодня</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">Лист предложений: входящие + просроченные</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= B ================= -->
+  <div class="concept">
+    <h2>B. Утренний разбор</h2>
+    <div class="from">Аналоги: Sunsama (утренний ритуал) + разбор по одной карточке</div>
+    <p class="idea">Мини-апп открывается не списком, а <b>ритуалом на две минуты</b>: три шага с прогрессом сверху — «просроченное», «входящие», «план дня». Входящие идут крупной карточкой по одной: видно, что переслано и откуда, ниже четыре решения, включая «В проект». Главная кнопка Telegram ведёт по шагам. Когда разобрано — экран итогов и обычный список дня. Утренняя сводка от бота открывает именно этот ритуал.</p>
+    <div class="phones">
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">Разбор входящих<small>шаг 2 из 3</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content b">
+            <div class="steps"><i class="on"></i><i class="on"></i><i></i></div>
+            <div class="steplbl">Входящие · 1 из 3</div>
+            <h3>Что с этим делаем?</h3>
+            <div class="card">
+              <div class="src"><span class="av"></span>Переслано из «Постгрес и всё такое» · 2 дня</div>
+              <h5>Статья про индексы в Postgres</h5>
+              <p>Разбор частичных и покрывающих индексов: когда реально ускоряют запросы и когда только мешают записи…</p>
+              <div class="lnk"><svg class="i s"><use href="#i-link"/></svg>t.me/c/1234/567</div>
+            </div>
+            <div class="acts">
+              <div class="pri"><svg class="i"><use href="#i-sun"/></svg>Сегодня</div>
+              <div><svg class="i"><use href="#i-cal"/></svg>Дата</div>
+              <div class="prj"><svg class="i"><use href="#i-bulb"/></svg>В проект</div>
+              <div class="del"><svg class="i"><use href="#i-trash"/></svg>Удалить</div>
+            </div>
+            <div class="left">свайп вправо — завтра · влево — пропустить</div>
+            <div class="mainbtn sec">Пропустить</div>
+          </div>
+        </div>
+        <div class="cap">Шаг 2: входящие по одной</div>
+      </div>
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">План на день<small>шаг 3 из 3</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content b">
+            <div class="steps"><i class="on"></i><i class="on"></i><i class="on"></i></div>
+            <div class="steplbl">Разобрано за 1 мин 40 с</div>
+            <div class="big">5 задач</div>
+            <div class="steplbl" style="padding-top:0;margin-bottom:12px">и 2 встречи на сегодня</div>
+            <div class="sum">
+              <div class="row"><span class="ic" style="background:rgba(62,136,247,.16);color:#3e88f7"><svg class="i"><use href="#i-sun"/></svg></span><b>В сегодня</b><span>2</span></div>
+              <div class="row"><span class="ic" style="background:rgba(191,90,242,.16);color:#bf5af2"><svg class="i"><use href="#i-cal"/></svg></span><b>На другие дни</b><span>1</span></div>
+              <div class="row"><span class="ic" style="background:rgba(255,69,58,.16);color:#ff453a"><svg class="i"><use href="#i-trash"/></svg></span><b>Удалено</b><span>1</span></div>
+            </div>
+            <div class="plan">
+              <div class="t"><span class="ck"></span>Оплатить интернет</div>
+              <div class="t"><span class="ck"></span>Позвонить в сервис <span class="muted" style="margin-left:auto;font-size:13px">15:00</span></div>
+              <div class="t"><span class="ck"></span>Статья про индексы в Postgres</div>
+              <div class="t muted">ещё 2…</div>
+            </div>
+            <div class="mainbtn">Начать день</div>
+          </div>
+        </div>
+        <div class="cap">Шаг 3: итог разбора и план</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= C ================= -->
+  <div class="concept">
+    <h2>C. Неделя-блокнот</h2>
+    <div class="from">Аналоги: Tweek / TeuxDeux (бумажная неделя) + Todoist Upcoming (полоса дней)</div>
+    <p class="idea">Главный экран — <b>неделя как ежедневник</b>: сверху полоса дней с точками (красная — есть просроченное), ниже лента по дням без часов. Задачу <b>перетаскиваешь пальцем</b> на другой день. Входящие живут <b>шторкой снизу</b> — «Когда-нибудь / разобрать»: вытянул карточку из шторки на нужный день — разобрал. Ничего не прячется по вкладкам: вся неделя и склад на одном экране.</p>
+    <div class="phones">
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">Октябрь<small>неделя 44</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content c">
+            <div class="strip">
+              <div>пн<b>26</b><i class="r"></i></div>
+              <div class="on">вт<b>27</b><i></i></div>
+              <div>ср<b>28</b><i></i></div>
+              <div>чт<b>29</b><i class="n"></i></div>
+              <div>пт<b>30</b><i></i></div>
+              <div>сб<b>31</b><i class="n"></i></div>
+              <div>вс<b>1</b><i class="n"></i></div>
+            </div>
+            <div class="feed">
+              <div class="day"><div class="dh"><b>Сегодня</b><span>вт, 27</span><em>2/5</em></div>
+                <div class="t"><span class="ck red"></span>Оплатить интернет<small class="red">вчера</small></div>
+                <div class="t"><span class="ck"></span>Позвонить в сервис<small><svg class="i s"><use href="#i-bell"/></svg>15:00</small></div>
+                <div class="t drag"><span class="ck"></span>Отправить отчёт<small>тащу на завтра…</small></div>
+                <div class="t"><span class="ck on"></span><span class="muted" style="text-decoration:line-through">Полить цветы</span></div>
+              </div>
+              <div class="day"><div class="dh"><b>Завтра</b><span>ср, 28</span></div>
+                <div class="t"><span class="ck"></span>Забрать посылку</div>
+              </div>
+              <div class="day"><div class="dh"><b>Четверг</b><span>29</span></div>
+                <div class="empty">+ свободно</div>
+              </div>
+            </div>
+            <div class="someday">
+              <div class="grab"></div>
+              <div class="hd"><svg class="i"><use href="#i-inbox"/></svg><b>Разобрать</b><span class="cnt">3</span><span>тяни на день ↑</span></div>
+              <div class="chips"><div>Статья про индексы…</div><div>Доклад про SQLite</div><div>Отчёты</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">Неделя, перетаскивание, шторка входящих</div>
+      </div>
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">Разобрать<small>3 из чата</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content c">
+            <div class="strip" style="opacity:.45">
+              <div>пн<b>26</b><i class="r"></i></div><div class="on">вт<b>27</b><i></i></div><div>ср<b>28</b><i></i></div><div>чт<b>29</b><i class="n"></i></div><div>пт<b>30</b><i></i></div><div>сб<b>31</b><i class="n"></i></div><div>вс<b>1</b><i class="n"></i></div>
+            </div>
+            <div class="someday" style="top:96px;bottom:0;border-radius:16px 16px 0 0;padding-top:10px">
+              <div class="grab"></div>
+              <div class="hd"><svg class="i"><use href="#i-inbox"/></svg><b>Разобрать</b><span class="cnt">3</span><span>шторка развёрнута</span></div>
+              <div style="margin-top:14px">
+                <div class="day" style="padding-top:0">
+                  <div class="t"><span class="ck"></span><div><div>Статья про индексы в Postgres</div><small style="margin:0;color:#8d8e93;font-size:12px">переслано из канала · 2 дня</small></div></div>
+                  <div class="t"><span class="ck"></span><div><div>Доклад про SQLite</div><small style="margin:0;color:#8d8e93;font-size:12px">youtube.com · вчера</small></div></div>
+                  <div class="t"><span class="ck"></span><div><div>Автоматизировать отчёты</div><small style="margin:0;color:#8d8e93;font-size:12px">сегодня</small></div></div>
+                </div>
+              </div>
+              <div style="color:#8d8e93;font-size:13px;margin-top:14px">Долгое нажатие и тянуть вверх — на день недели. Свайп влево — удалить, вправо — в проект.</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">Шторка развёрнута на весь экран</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= D ================= -->
+  <div class="concept">
+    <h2>D. Лента дня</h2>
+    <div class="from">Аналог: Structured (визуальная лента дня) + события Google Календаря, которые у бота уже есть</div>
+    <p class="idea">День нарисован <b>вертикальной лентой времени</b>: встречи из календаря — зелёные блоки, задачи с напоминанием встают на своё время, красная линия «сейчас». Задачи без времени — сверху в блоке «В любое время». <b>Свободные окна</b> видны пунктиром — можно бросить туда задачу из входящих. Самый наглядный вариант, если календарь у тебя живой; если встреч мало, лента будет пустоватой.</p>
+    <div class="phones">
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">ToDoBOT<small>мини-приложение</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content d">
+            <div class="head"><h3>Сегодня</h3><span>вт, 27 окт · 2/6</span></div>
+            <div class="anytime">
+              <div class="lbl">В любое время</div>
+              <div class="t"><span class="ck red"></span>Оплатить интернет<small class="red">вчера</small></div>
+              <div class="t"><span class="ck"></span>Купить молоко</div>
+              <div class="t"><span class="ck"></span>Отправить отчёт</div>
+            </div>
+            <div class="tl">
+              <div class="hr" style="top:0">10:00</div>
+              <div class="blk cal" style="top:24px;height:46px"><b>Созвон с командой</b>11:00–11:45</div>
+              <div class="hr" style="top:80px">12:00</div>
+              <div class="now" style="top:118px"></div>
+              <div class="blk free" style="top:132px;height:40px;padding-top:10px">свободно 2 ч — брось задачу сюда</div>
+              <div class="hr" style="top:184px">14:00</div>
+              <div class="blk task" style="top:206px;height:38px"><span class="ck"></span><div><b>Позвонить в сервис</b></div><span style="margin-left:auto;font-size:12px;opacity:.8">15:00</span></div>
+              <div class="hr" style="top:258px">16:00</div>
+              <div class="blk cal" style="top:280px;height:56px;border-left-color:#bf5af2;background:rgba(191,90,242,.16);color:#ecd6fb"><b>Стоматолог</b>16:30–17:30</div>
+            </div>
+            <div class="nav">
+              <div><svg class="i"><use href="#i-inbox"/></svg>Входящие<span class="bd">3</span></div>
+              <div class="on"><svg class="i"><use href="#i-sun"/></svg>Сегодня</div>
+              <div><svg class="i"><use href="#i-week"/></svg>Неделя</div>
+              <div><svg class="i"><use href="#i-bulb"/></svg>Проекты</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">Лента дня с календарём и окнами</div>
+      </div>
+      <div>
+        <div class="phone">
+          <div class="tgbar"><span class="close">Закрыть</span><div class="ttl">ToDoBOT<small>мини-приложение</small></div><span class="more"><svg class="i s"><use href="#i-dots"/></svg></span></div>
+          <div class="content d">
+            <div class="head"><h3>Входящие</h3><span>3 из чата</span></div>
+            <div class="seg"><span class="on">Все</span><span>Ссылки</span><span>Заметки</span></div>
+            <div class="anytime" style="margin-top:12px">
+              <div class="t" style="align-items:flex-start"><span class="ck" style="margin-top:2px"></span><div><div>Статья про индексы в Postgres</div><small style="margin:0;color:#8d8e93;font-size:12px">переслано из канала · 2 дня</small></div></div>
+              <div class="t" style="align-items:flex-start"><span class="ck" style="margin-top:2px"></span><div><div>Доклад про SQLite</div><small style="margin:0;color:#8d8e93;font-size:12px">youtube.com · вчера</small></div></div>
+              <div class="t" style="align-items:flex-start"><span class="ck" style="margin-top:2px"></span><div><div>Автоматизировать отчёты</div><small style="margin:0;color:#8d8e93;font-size:12px">сегодня</small></div></div>
+            </div>
+            <div style="margin:14px 18px 0;color:#8d8e93;font-size:13px">Тап — лист «Сегодня / В окно 12:00 / Дата / В проект / Удалить»</div>
+            <div class="nav">
+              <div class="on"><svg class="i"><use href="#i-inbox"/></svg>Входящие</div>
+              <div><svg class="i"><use href="#i-sun"/></svg>Сегодня<span class="bd">4</span></div>
+              <div><svg class="i"><use href="#i-week"/></svg>Неделя</div>
+              <div><svg class="i"><use href="#i-bulb"/></svg>Проекты</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">Входящие с предложением свободного окна</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
