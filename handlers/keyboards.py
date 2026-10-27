@@ -185,3 +185,12 @@ def settings_kb(
         callback_data=f"settings:projects:{'off' if projects_enabled else 'on'}",
     )]
     return InlineKeyboardMarkup(inline_keyboard=[buttons, research_row, projects_row])
+
+
+def reminder_fire_kb(task_key: str) -> InlineKeyboardMarkup:
+    """Кнопки под напоминанием по задаче. task_key — 8 символов, лимит 64 байта с запасом."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Готово", callback_data=f"rem:done:{task_key}"),
+        InlineKeyboardButton(text="+1 ч", callback_data=f"rem:1h:{task_key}"),
+        InlineKeyboardButton(text="Завтра", callback_data=f"rem:tom:{task_key}"),
+    ]])

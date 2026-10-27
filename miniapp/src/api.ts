@@ -102,7 +102,7 @@ export function moveKeys(keys: string[], to: string, times?: Times): Promise<Mov
   return call("POST", "/api/tasks/move", times ? { keys, to, times } : { keys, to });
 }
 
-export type Summary = { inbox: number; today: number; overdue: number };
+export type Summary = { inbox: number; today: number; overdue: number; reading?: number };
 export type MoveResult = { moved: number; total: number; failed: string[]; warnings?: MoveWarning[] };
 // Время по ключу задачи; ключа нет — то же время.
 export type Times = Record<string, string | null>;
@@ -160,3 +160,35 @@ export function getStats(): Promise<Stats> {
   return call("GET", "/api/stats");
 }
 
+
+// «Чтение»: материалы, опубликованные с Mac.
+export type MaterialMeta = {
+  id: number;
+  title: string;
+  source: string;
+  created_at: string;
+  pinned: boolean;
+  read: boolean;
+  chars: number;
+};
+export type Material = MaterialMeta & { markdown: string };
+
+export function getReading(): Promise<{ unread: number; items: MaterialMeta[] }> {
+  return call("GET", "/api/reading");
+}
+
+export function getMaterial(id: number): Promise<Material> {
+  return call("GET", `/api/reading/${id}`);
+}
+
+export function setMaterialRead(id: number, read: boolean): Promise<{ ok: true }> {
+  return call("POST", `/api/reading/${id}/read`, { read });
+}
+
+export function setMaterialPinned(id: number, pinned: boolean): Promise<{ ok: true }> {
+  return call("POST", `/api/reading/${id}/pin`, { pinned });
+}
+
+export function deleteMaterial(id: number): Promise<{ ok: true }> {
+  return call("DELETE", `/api/reading/${id}`);
+}

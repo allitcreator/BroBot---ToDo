@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Settings, Stats, getStats, patchSettings } from "../api";
 import { ErrorView, errorText } from "../components/Status";
+import { FONT_SIZES, FontSize, getFontSize, setFontSize } from "../reading";
 import { alertUser, haptic } from "../telegram";
 
 const MODES: { value: Settings["confirm_mode"]; label: string; hint: string }[] = [
@@ -18,6 +19,7 @@ type Props = { settings: Settings | null; onSettings: (s: Settings) => void };
 export function SettingsScreen({ settings, onSettings }: Props) {
   const [stats, setStats] = useState<{ kind: "loading" } | { kind: "ready"; data: Stats } | { kind: "error"; message: string; expired: boolean }>({ kind: "loading" });
   const [saving, setSaving] = useState(false);
+  const [font, setFont] = useState<FontSize>(getFontSize);
 
   const loadStats = useCallback(async () => {
     setStats({ kind: "loading" });
@@ -62,6 +64,33 @@ export function SettingsScreen({ settings, onSettings }: Props) {
         {stats.kind === "loading" && <div className="center small">Считаю…</div>}
         {stats.kind === "error" && <ErrorView {...stats} onRetry={() => void loadStats()} />}
         {stats.kind === "ready" && <StatsView s={stats.data} />}
+      </section>
+
+      <section>
+        <div className="group">
+          <h2>Чтение</h2>
+        </div>
+        <label className="set">
+          <span>
+            Размер шрифта
+            <small>на этом устройстве</small>
+          </span>
+          <select
+            aria-label="Размер шрифта"
+            value={font}
+            onChange={(e) => {
+              const size = Number(e.target.value) as FontSize;
+              setFontSize(size);
+              setFont(size);
+            }}
+          >
+            {FONT_SIZES.map((f) => (
+              <option key={f} value={f}>
+                {f} пт
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       {settings && (

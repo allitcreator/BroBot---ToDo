@@ -97,7 +97,13 @@ async def _force_refresh(stale_token: str) -> str:
 # бота сбрасывает кэш целиком; правки из приложения To Do видны не позже TTL.
 CACHE_TTL = 60.0
 MAX_PAGES = 5
-_tasks_cache: dict[tuple, tuple[float, list[dict]]] = {}
+_tasks_cache: dict[tuple, tuple[float, list[dict], bool]] = {}  # (когда, задачи, усечён ли список)
+_last_truncated = False
+
+
+def last_fetch_truncated() -> bool:
+    """Последний get_tasks упёрся в MAX_PAGES и отдал неполный список."""
+    return _last_truncated
 
 
 def invalidate_cache():
@@ -284,8 +290,10 @@ async def get_tasks(odata_filter: str | None = None, list_id: str | None = None)
     if odata_filter:
         params["$filter"] = odata_filter
     cache_key = (odata_filter, list_id)
+    global _last_truncated
     cached = _tasks_cache.get(cache_key)
     if cached and time.monotonic() - cached[0] < CACHE_TTL:
+        _last_truncated = cached[2]
         return list(cached[1])
     data = await _request("GET", _list_path(list_id), params=params)
     tasks = list(data.get("value", []))
@@ -297,7 +305,8 @@ async def get_tasks(odata_filter: str | None = None, list_id: str | None = None)
             break
         data = await _request("GET", next_link.removeprefix(GRAPH_URL))
         tasks.extend(data.get("value", []))
-    _tasks_cache[cache_key] = (time.monotonic(), tasks)
+    _last_truncated = bool(data.get("@odata.nextLink"))
+    _tasks_cache[cache_key] = (time.monotonic(), tasks, _last_truncated)
     return list(tasks)
 
 

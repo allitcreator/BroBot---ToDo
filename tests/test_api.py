@@ -290,7 +290,7 @@ def test_неизвестный_срез_400(loop, client):
 def test_счётчики_для_вкладок(loop, client, monkeypatch):
     _open_tasks(monkeypatch, _sample(config.local_today()))
     resp = loop.run_until_complete(client.get("/api/summary", headers=_auth()))
-    assert loop.run_until_complete(resp.json()) == {"inbox": 1, "today": 1, "overdue": 1}
+    assert loop.run_until_complete(resp.json()) == {"inbox": 1, "today": 1, "overdue": 1, "reading": 0}
 
 
 def test_выполнено_чистит_хвосты(loop, client, monkeypatch):

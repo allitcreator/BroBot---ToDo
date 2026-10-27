@@ -229,3 +229,31 @@ button.quiet { color: var(--hint); font-size: 14px; }
 .summary p { color: var(--hint); margin: 6px 0; }
 
 .ritual-note { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; background: var(--fill); font-size: 14px; }
+
+/* Чтение */
+.reading-list { list-style: none; margin: 0; padding: 0; }
+.reading-item {
+  display: block; width: 100%; text-align: left; background: transparent; color: var(--text);
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.reading-item.read { color: var(--hint); }
+.reading-title { display: block; font-weight: 600; }
+.reading-item small { color: var(--hint); }
+.reader h1 { font-size: 1.3em; margin: 8px 0; }
+.reader { line-height: 1.5; overflow-wrap: anywhere; }
+.reader .md h2, .reader .md h3, .reader .md h4, .reader .md h5, .reader .md h6 { margin: 1.1em 0 0.3em; line-height: 1.25; }
+.reader .md h2 { font-size: 1.2em; }
+.reader .md h3 { font-size: 1.1em; }
+.reader .md p, .reader .md ul, .reader .md ol, .reader .md pre, .reader .md blockquote { margin: 0.6em 0; }
+.reader .md ul, .reader .md ol { padding-left: 1.4em; }
+.reader .md code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; background: var(--fill); padding: 1px 4px; border-radius: 4px; }
+.reader .md pre { background: var(--fill); padding: 10px; border-radius: 8px; overflow-x: auto; }
+.reader .md pre code { background: transparent; padding: 0; }
+.reader .md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--hint); }
+.reader .md a { color: var(--accent); }
+.reader .md hr { border: 0; border-top: 1px solid var(--line); }
+.md-table { overflow-x: auto; margin: 0.6em 0; }
+.md-table table { border-collapse: collapse; font-size: 0.92em; }
+.md-table th, .md-table td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.reader-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 40px; }
+button.danger { color: var(--danger); }

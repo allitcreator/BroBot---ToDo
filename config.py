@@ -39,6 +39,12 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 
 
+# Токен входа с Mac для материалов («Чтение»): POST/GET/DELETE
+# /api/assistant/materials. Пусто — эндпоинт выключен (404), а не открыт.
+ASSISTANT_API_TOKEN = os.getenv("ASSISTANT_API_TOKEN", "").strip()
+ASSISTANT_TOKEN_MIN_LEN = 32
+
+
 def local_today() -> date:
     """Текущая дата в часовом поясе пользователя."""
     return datetime.now(ZoneInfo(USER_TIMEZONE)).date()
@@ -64,6 +70,11 @@ def config_problems() -> list[str]:
     problems = [f"не задан {name}" for name in _REQUIRED_VARS if not globals()[name]]
     if not TELEGRAM_USER_ID:
         problems.append("не задан TELEGRAM_USER_ID — бот никому не ответит")
+    if ASSISTANT_API_TOKEN and len(ASSISTANT_API_TOKEN) < ASSISTANT_TOKEN_MIN_LEN:
+        problems.append(
+            f"ASSISTANT_API_TOKEN короче {ASSISTANT_TOKEN_MIN_LEN} символов — "
+            "задай длинный случайный токен или оставь пустым (эндпоинт выключен)"
+        )
     if USE_WEBHOOK:
         if not WEBHOOK_HOST:
             problems.append("USE_WEBHOOK=true, но не задан WEBHOOK_HOST")

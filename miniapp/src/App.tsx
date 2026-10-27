@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Settings, Summary, getSettings, getSummary } from "./api";
+import { ReadingScreen } from "./screens/ReadingScreen";
 import { InboxScreen } from "./screens/InboxScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { TodayScreen } from "./screens/TodayScreen";
@@ -7,14 +8,28 @@ import { RitualEvening } from "./screens/RitualEvening";
 import { RitualMorning } from "./screens/RitualMorning";
 import { WeekScreen } from "./screens/WeekScreen";
 
-type Tab = "inbox" | "today" | "week" | "settings";
+type Tab = "inbox" | "today" | "week" | "reading" | "settings";
 
 // Параметр из кнопки сводки бота (?ritual=morning|evening) открывает разбор
 // поверх вкладок; test — только метка: проверка, что параметр доходит.
 const ritualParam = () => new URLSearchParams(window.location.search).get("ritual");
 
+// Кнопка «📖 Новое: …» от бота (?read=<id>) открывает материал во вкладке «Чтение».
+const readParam = (): number | null => {
+  const raw = new URLSearchParams(window.location.search).get("read");
+  return raw && /^\d+$/.test(raw) ? Number(raw) : null;
+};
+
 export default function App() {
-  const [tab, setTab] = useState<Tab>("today");
+  const [openId, setOpenId] = useState(readParam);
+  const [tab, setTab] = useState<Tab>(openId !== null ? "reading" : "today");
+  // Параметр используется один раз: возврат на вкладку показывает список, а не материал.
+  const consumeRead = useCallback(() => {
+    setOpenId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("read");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }, []);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [ritual, setRitual] = useState(ritualParam);
@@ -35,6 +50,7 @@ export default function App() {
     { id: "today", icon: "★", label: "Сегодня", count: summary ? summary.today + summary.overdue : undefined, alert: !!summary?.overdue },
     { id: "inbox", icon: "📥", label: "Входящие", count: summary?.inbox },
     { id: "week", icon: "📅", label: "Неделя" },
+    { id: "reading", icon: "📖", label: "Чтение", count: summary?.reading },
     { id: "settings", icon: "⚙️", label: "Ещё" },
   ];
 
@@ -66,6 +82,7 @@ export default function App() {
         {tab === "inbox" && <InboxScreen onChanged={refreshSummary} />}
         {tab === "today" && <TodayScreen onChanged={refreshSummary} inbox={summary?.inbox ?? 0} onOpenInbox={() => setTab("inbox")} onRitual={setRitual} />}
         {tab === "week" && <WeekScreen onChanged={refreshSummary} />}
+        {tab === "reading" && <ReadingScreen onChanged={refreshSummary} initialId={openId} onConsumed={consumeRead} />}
         {tab === "settings" && <SettingsScreen settings={settings} onSettings={setSettings} />}
       </main>
       <nav className="tabbar" role="tablist">

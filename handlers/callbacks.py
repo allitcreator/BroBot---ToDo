@@ -917,7 +917,7 @@ async def cb_reminder_tg(callback: CallbackQuery):
             state_data["chat_id"],
             state_data["fire_at_utc"],
             f"⏰ Напоминание: {state_data['task_title']}",
-            task_id=state_data.get("task_id"),
+            task_id=state_data.get("task_id"), source="tg",
         )
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
@@ -935,6 +935,56 @@ async def cb_reminder_tg(callback: CallbackQuery):
     await callback.answer("✅ Напоминание создано в Telegram")
 
 
+# --- Кнопки под напоминанием: «Готово», «+1 ч», «Завтра» ---
+
+@router.callback_query(F.data.startswith("rem:"), user_filter)
+async def cb_reminder_fire(callback: CallbackQuery):
+    try:
+        _, action, key = callback.data.split(":", 2)
+    except ValueError:
+        await callback.answer()
+        return
+    task_id = await resolve_task_id(key)
+    if not task_id:
+        await callback.answer("Задача не найдена", show_alert=True)
+        return
+
+    try:
+        if action == "done":
+            await ms_todo.complete_task(task_id)
+            await task_ops.cleanup_task_extras(task_id)  # как routes.complete_task: напоминания и событие
+            toast = "✅ Задача закрыта"
+        elif action in ("1h", "tom"):
+            if action == "1h":
+                fire = datetime.now(ZoneInfo("UTC")) + timedelta(hours=1)
+                toast = "⏰ Напомню через час"
+            else:
+                tz = ZoneInfo(config.USER_TIMEZONE)
+                local = datetime.combine(config.local_today() + timedelta(days=1), datetime.min.time(), tzinfo=tz)
+                fire = local.replace(hour=9).astimezone(ZoneInfo("UTC"))
+                toast = "⏰ Напомню завтра в 9:00"
+            fire_utc = fire.strftime("%Y-%m-%dT%H:%M:%S")
+            await ms_todo.set_reminder(task_id, fire_utc)
+            # В MS Todo у задачи одно напоминание — в боте тоже одно.
+            await storage.delete_telegram_reminder_by_task(task_id)
+            await storage.save_reminder(
+                callback.from_user.id, fire_utc, (getattr(callback.message, "text", None) or "⏰ Напоминание"),
+                task_id=task_id, source="button",
+            )
+        else:
+            await callback.answer()
+            return
+    except Exception as e:
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
+        return
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.answer(toast)
+
+
 @router.callback_query(F.data == "reminder:todo", user_filter)
 async def cb_reminder_todo(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -950,7 +1000,7 @@ async def cb_reminder_todo(callback: CallbackQuery):
             state_data["chat_id"],
             state_data["fire_at_utc"],
             f"⏰ Напоминание: {state_data['task_title']}",
-            task_id=state_data.get("task_id"),
+            task_id=state_data.get("task_id"), source="mstodo",
         )
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")

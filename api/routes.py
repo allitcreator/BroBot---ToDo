@@ -10,6 +10,7 @@ from datetime import date, time, timedelta
 from aiohttp import web
 
 import config
+from api import material_routes
 from api.auth import InitDataError, verify_init_data
 from db import storage
 from services import ms_todo, task_ops
@@ -23,6 +24,9 @@ NOTE_LIMIT = 300
 async def auth_middleware(request: web.Request, handler):
     if not request.path.startswith("/api/"):
         return await handler(request)
+    # Вход с Mac живёт на своём токене и ничего другого не открывает.
+    if request.path.startswith(material_routes.ASSISTANT_PREFIX):
+        return await material_routes.bearer_gate(request, handler)
 
     header = request.headers.get("Authorization", "")
     init_data = header[4:] if header.startswith("tma ") else ""
@@ -138,6 +142,7 @@ async def get_summary(request: web.Request) -> web.Response:
         "inbox": sum(1 for d in dates if d is None),
         "today": sum(1 for d in dates if d == today),
         "overdue": sum(1 for d in dates if d and d < today),
+        "reading": await storage.count_unread_materials(),
     })
 
 
@@ -309,3 +314,4 @@ def setup(app: web.Application) -> None:
     app.router.add_delete("/api/tasks/{key}", delete_task)
     more_routes.setup(app)
     ritual_routes.setup(app)
+    material_routes.setup(app)

@@ -2,8 +2,13 @@ import asyncio
 import logging
 import os
 import sys
+import time
+from datetime import datetime, timedelta, timezone
 from aiohttp import web
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import (
+    TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter, TelegramServerError,
+)
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -12,7 +17,8 @@ import config
 from api import routes as api_routes
 from db import storage
 from handlers import messages, commands, callbacks
-from services import rituals
+from handlers.keyboards import reminder_fire_kb
+from services import reminder_sync, rituals
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -29,22 +35,113 @@ async def _ritual_tick(bot: Bot):
         logging.exception("Ritual tick error")
 
 
+REMINDER_MAX_ATTEMPTS = 5      # попыток отправки (по одной за проход цикла, 30 с)
+TRANSIENT_GRACE = timedelta(hours=2)  # временные сбои не считаются попытками первые 2 ч от fire_at
+SYNC_INTERVAL = 300            # синк напоминаний MS Todo, секунд
+_sync_task: asyncio.Task | None = None
+_last_sync = 0.0
+_retry_after: dict[int, float] = {}   # id напоминания -> monotonic, раньше которого не пробуем (flood control)
+_sent_unmarked: set[int] = set()      # отправлено, но пометка в БД не удалась: не слать повторно
+
+
+async def _sync_tick():
+    try:
+        # Graph может висеть до таймаута клиента; дольше минуты проход не держим.
+        await asyncio.wait_for(reminder_sync.sync(), 60)
+    except Exception:
+        logging.exception("Reminder sync error")
+
+
+def _parse_fire_at(value: str) -> datetime | None:
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+async def _on_send_error(reminder: dict, e: Exception):
+    """Постоянная ошибка (бот заблокирован, чата нет) — снимаем сразу; временная
+    (сеть, таймаут, flood control) — ждём, не считая попыткой, пока не прошло
+    2 ч от fire_at; прочее — потолок REMINDER_MAX_ATTEMPTS."""
+    rid = reminder["id"]
+    if isinstance(e, (TelegramForbiddenError, TelegramBadRequest)):
+        logging.error(f"Reminder dropped, permanent Telegram error (id={rid}): {e}")
+        await storage.give_up_reminder(rid)
+        return
+    if isinstance(e, TelegramRetryAfter):
+        _retry_after[rid] = time.monotonic() + e.retry_after
+    fire = _parse_fire_at(reminder.get("fire_at", ""))
+    transient = isinstance(e, (TelegramRetryAfter, TelegramNetworkError, TelegramServerError, asyncio.TimeoutError))
+    if transient and fire and datetime.now(timezone.utc) - fire < TRANSIENT_GRACE:
+        logging.warning(f"Reminder send transient error (id={rid}): {e}")
+        return
+    attempts = await storage.bump_reminder_attempts(rid)
+    if attempts >= REMINDER_MAX_ATTEMPTS:
+        logging.error(f"Reminder dropped after {attempts} attempts (id={rid}): {e}")
+        await storage.give_up_reminder(rid)
+    else:
+        logging.error(f"Reminder send error (id={rid}, attempt {attempts}): {e}")
+
+
+async def deliver_due(bot: Bot):
+    """Отправляет созревшие напоминания. Отправка, пометка и удаление — раздельно:
+    сбой пометки или удаления не даёт повторной отправки, один сбой не обрывает проход."""
+    for rid in list(_sent_unmarked):   # отправленное, но не помеченное — дометить
+        try:
+            await storage.mark_reminder_sent(rid)
+            _sent_unmarked.discard(rid)
+        except Exception as e:
+            logging.error(f"Reminder mark error (id={rid}): {e}")
+    try:
+        await storage.delete_sent_reminders()
+    except Exception as e:
+        logging.error(f"Reminder cleanup error: {e}")
+
+    for reminder in await storage.get_due_reminders():
+        rid = reminder["id"]
+        if rid in _sent_unmarked or _retry_after.get(rid, 0) > time.monotonic():
+            continue
+        _retry_after.pop(rid, None)
+        try:
+            # Пара уже доставлена (гонка check-then-insert в синке) — не дублируем.
+            if reminder["task_id"] and await storage.reminder_pair_logged(reminder["task_id"], reminder["fire_at"]):
+                await storage.delete_reminder(rid)
+                continue
+            markup = None
+            if reminder["task_id"]:
+                markup = reminder_fire_kb(await storage.register_task_id(reminder["task_id"]))
+            await bot.send_message(reminder["chat_id"], reminder["text"], reply_markup=markup)
+        except Exception as e:
+            try:
+                await _on_send_error(reminder, e)
+            except Exception as e2:
+                logging.error(f"Reminder error handling failed (id={rid}): {e2}")
+            continue
+        try:
+            await storage.mark_reminder_sent(rid)
+        except Exception as e:
+            _sent_unmarked.add(rid)
+            logging.error(f"Reminder mark error (id={rid}): {e}")
+            continue
+        try:
+            await storage.delete_reminder(rid)
+        except Exception as e:
+            logging.error(f"Reminder delete error (id={rid}): {e}")  # помечена — доудалится позже
+
+
 async def _reminder_loop(bot: Bot):
-    global _ritual_task
+    global _ritual_task, _sync_task, _last_sync
     while True:
         await asyncio.sleep(30)
-        # Сводки — отдельной задачей: зависший Graph не задерживает
+        # Сводки и синк — отдельными задачами: зависший Graph не задерживает
         # напоминания. Новый проход — только когда прошлый закончился.
         if _ritual_task is None or _ritual_task.done():
             _ritual_task = asyncio.create_task(_ritual_tick(bot))
+        if (_sync_task is None or _sync_task.done()) and time.monotonic() - _last_sync >= SYNC_INTERVAL:
+            _last_sync = time.monotonic()
+            _sync_task = asyncio.create_task(_sync_tick())
         try:
-            due = await storage.get_due_reminders()
-            for reminder in due:
-                try:
-                    await bot.send_message(reminder["chat_id"], reminder["text"])
-                    await storage.delete_reminder(reminder["id"])
-                except Exception as e:
-                    logging.error(f"Reminder send error (id={reminder['id']}): {e}")
+            await deliver_due(bot)
         except Exception as e:
             logging.error(f"Reminder loop error: {e}")
 
@@ -140,6 +237,7 @@ def run_webhook():
     handler.register(app, path="/")
     # API мини-аппа — в том же приложении: второй процесс на одном ядре
     # vps4 не нужен. Наружу его отдаёт nginx поддомена мини-аппа.
+    app["bot"] = bot  # уведомление «📖 Новое» из API материалов
     api_routes.setup(app)
     setup_application(app, dp, bot=bot)
 
