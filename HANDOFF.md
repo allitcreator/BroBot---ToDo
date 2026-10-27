@@ -1,7 +1,7 @@
 # HANDOFF
 
-Статус: ждёт — выкладка этапа 4 ассистента: решение и действия Александра на vps4
-Обновлено: 2026-10-27 17:14 MSK
+Статус: ждёт — Александр: кнопки напоминания и вкладка «Чтение» на iPhone
+Обновлено: 2026-10-27 17:54 MSK
 Клиент: Claude
 
 ## Цель
@@ -14,7 +14,11 @@
 
 ## Выполнено
 
-Код в ветке `assistant-reminders-sync` (от `main`), **не закоммичен**:
+**В проде с 27.10 17:44 MSK — `11b7909`** (main, запушен; ветка
+`assistant-reminders-sync` влита fast-forward). Бэкап перед выкладкой:
+`/root/todobot/backups/bot-20261027-1442.db.gz`. `ASSISTANT_API_TOKEN`
+(43 символа) — в `.env` vps4 и Mac. nginx перечитан, фронт выложен.
+Состав:
 14 изменённых файлов (+592/−27) и 11 новых — `services/reminder_sync.py`,
 `api/material_routes.py`, `miniapp/src/{markdown.tsx,reading.ts,
 screens/ReadingScreen.tsx,components/ErrorBoundary.tsx}`, тесты.
@@ -35,8 +39,13 @@ screens/ReadingScreen.tsx,components/ErrorBoundary.tsx}`, тесты.
 
 ## Текущее состояние
 
-Код готов и проверен локально; на проде старая версия `54d5bbf`. Клиент
-на Mac готов: `todo.py remind`, `todo.py publish` (в `../todo_and_run`).
+Смоук 27.10 на проде: миграции применились (`materials`, `reminder_log`,
+`sync_state`, колонки `reminders`); `/health` 200; `/api/assistant/*` без
+токена 401; `todo.py publish` → 201 материал id 1, повтор → 200
+`duplicate`; `todo.py remind` на тестовую задачу 17:53 → синк завёл
+`source=sync` в 17:49:57, отправлено 17:53:27 один раз, `reminder_log
+sent`. Ошибок в логах нет. Не подтверждено глазами: сообщение с кнопками в
+Telegram, «📖 Новое», вкладка на iPhone.
 
 ## Решения и ограничения
 
@@ -70,18 +79,16 @@ screens/ReadingScreen.tsx,components/ErrorBoundary.tsx}`, тесты.
 
 ## Следующий точный шаг
 
-1. Александр: «выкатывай» или правки. Перед этим — commit в ветке и PR/merge
-   в `main` (по его просьбе).
-2. Выкладка: `deploy/backup-db.sh`; токен в `.env` vps4; `git pull && docker
-   compose up -d --build`; nginx-конфиг + `nginx -t && systemctl reload
-   nginx`; `deploy/deploy-front.sh front`.
-3. Смоук: `todo.py remind <N> <через 7 мин> --yes` → сообщение с кнопками;
-   `todo.py publish knowledge-base/personal/<файл>.md --yes` → «📖 Новое»,
-   вкладка на iPhone.
+1. Александр: в Telegram нажать «✅ Готово» под «Проверка напоминания
+   ассистента» (закроет тестовую задачу в MS Todo), открыть «📖 Новое» →
+   вкладка «Чтение» на iPhone, удалить пробный материал.
+2. Через 5–10 мин после «Готово»: `reminders` пуст, задача закрыта, синк не
+   завёл напоминание заново.
+3. Строку `ASSISTANT_API_TOKEN=` (без значения) — в `.env.example` вручную.
+4. Если всё ок — закрыть HANDOFF.
 
 ## Rollback
 
-`git checkout main` (ветка не влита). После выкладки — `git revert`
-коммитов ветки, `docker compose up -d --build`, `deploy-front.sh front`;
+`git revert 11b7909`, push, на vps4 `git pull`, `docker compose up -d --build`, `deploy-front.sh front`;
 БД — `gunzip` снимка из `deploy/backup-db.sh` в `data/bot.db` при
 остановленном контейнере. Новые таблицы и колонки старый код не трогает.
