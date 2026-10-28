@@ -1,6 +1,10 @@
 import { initData } from "./telegram";
 
-export type InboxItem = {
+// Служебный блок заметки задачи: номер на сегодня, исполнитель, рекомендации.
+export type Executor = "agent" | "self" | null;
+export type TaskMeta = { order?: number | null; executor?: Executor; advice?: string | null };
+
+export type InboxItem = TaskMeta & {
   key: string;
   title: string;
   note: string;
@@ -59,7 +63,7 @@ export function deleteTask(key: string): Promise<{ ok: true }> {
   return call("DELETE", `/api/tasks/${encodeURIComponent(key)}`);
 }
 
-export type Task = {
+export type Task = TaskMeta & {
   key: string;
   title: string;
   note: string;
@@ -106,6 +110,17 @@ export type Summary = { inbox: number; today: number; overdue: number; reading?:
 export type MoveResult = { moved: number; total: number; failed: string[]; warnings?: MoveWarning[] };
 // Время по ключу задачи; ключа нет — то же время.
 export type Times = Record<string, string | null>;
+
+// Порядок дня и исполнители одним запросом. order — ключи задач на сегодня
+// по порядку (остальным сегодняшним номер снимается); meta — null снимает поле.
+export type PlanBody = {
+  order?: string[];
+  meta?: Record<string, { executor?: Executor; advice?: string | null }>;
+};
+
+export function savePlan(body: PlanBody): Promise<{ saved: number; total: number; failed: string[] }> {
+  return call("POST", "/api/tasks/plan", body);
+}
 
 export function getToday(): Promise<{ overdue: Task[]; today: Task[] }> {
   return call("GET", "/api/tasks?view=today");

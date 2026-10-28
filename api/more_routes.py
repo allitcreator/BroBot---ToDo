@@ -16,7 +16,7 @@ from aiohttp import web
 
 import config
 from db import storage
-from services import ms_todo, projects, research
+from services import ms_todo, projects, research, task_meta
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ def _first_line(text: str) -> str:
 async def list_projects(request: web.Request) -> web.Response:
     items = []
     for t in sorted(await projects.list_projects(), key=lambda t: t.get("createdDateTime") or "", reverse=True):
-        brief = projects.parse_body((t.get("body") or {}).get("content") or "")
+        brief = projects.parse_body(task_meta.split((t.get("body") or {}).get("content"))[0])
         items.append({
             "key": await storage.register_task_id(t["id"]),
             "title": t.get("title") or "",

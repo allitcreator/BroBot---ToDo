@@ -8,7 +8,7 @@
 держится весь цикл чтения-записи; они же покрыты тестами.
 """
 import config
-from services import ms_todo
+from services import ms_todo, task_meta
 
 # Порядок секций в заметке. Ключ брифа → заголовок.
 SECTIONS = [
@@ -162,12 +162,15 @@ async def create_project(brief: dict) -> dict:
 async def get_project(task_id: str) -> dict:
     """Читает проект из MS Todo: бриф из заметки, шаги из чеклиста."""
     task = await ms_todo.get_task(task_id, _list_id())
-    body = (task.get("body") or {}).get("content") or ""
+    # Служебный блок (порядок, исполнитель) — не часть брифа; при записи
+    # брифа он возвращается на место.
+    body, meta = task_meta.split((task.get("body") or {}).get("content") or "")
     brief = parse_body(body)
     brief["title"] = task.get("title") or ""
     items = await ms_todo.get_checklist_items(task_id, _list_id())
     return {
         "task": task,
+        "meta": meta,
         "brief": brief,
         "body_valid": body_is_valid(body),
         "steps": [
@@ -195,7 +198,7 @@ async def append_to_section(task_id: str, key: str, addition: str) -> dict:
     else:
         brief[key] = f"{current}\n{addition.strip()}"
 
-    await ms_todo.update_task_body(task_id, render_body(brief), _list_id())
+    await ms_todo.update_task_body(task_id, task_meta.apply(render_body(brief), project["meta"]), _list_id())
 
     steps = [s["text"] for s in project["steps"]]
     try:
@@ -217,7 +220,7 @@ async def set_section(task_id: str, key: str, value: str) -> dict:
     brief = project["brief"]
     brief[key] = value.strip()
 
-    await ms_todo.update_task_body(task_id, render_body(brief), _list_id())
+    await ms_todo.update_task_body(task_id, task_meta.apply(render_body(brief), project["meta"]), _list_id())
 
     steps = [s["text"] for s in project["steps"]]
     try:

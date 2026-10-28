@@ -1,5 +1,7 @@
 """Действия над задачей, общие для чата и мини-аппа."""
+import asyncio
 import logging
+from collections.abc import Callable
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -7,12 +9,34 @@ import httpx
 
 import config
 from db import storage
-from services import google_calendar, ms_todo
+from services import google_calendar, ms_todo, task_meta
 
 logger = logging.getLogger(__name__)
 
 # Перенос «в то же время»: время задачи сохраняется, меняется только день.
 KEEP = "keep"
+
+# Запись служебного блока заметки по задаче — строго по очереди: GET и PATCH
+# параллельных запросов иначе затрут поля друг друга.
+_meta_locks: dict[str, asyncio.Lock] = {}
+
+
+async def update_meta(task_id: str, change: Callable[[task_meta.Meta], task_meta.Meta]) -> bool:
+    """Меняет служебный блок заметки; True — если заметку пришлось записать.
+
+    Задача читается из Graph заново, а не из кэша: так не затирается правка,
+    сделанная в To Do после последнего списка.
+    """
+    lock = _meta_locks.setdefault(task_id, asyncio.Lock())
+    async with lock:
+        task = await ms_todo.get_task(task_id)
+        content = (task.get("body") or {}).get("content") or ""
+        old = task_meta.split(content)[1]
+        new = change(old)
+        if new == old:
+            return False
+        await ms_todo.update_task_body(task_id, task_meta.apply(content, new))
+        return True
 
 
 async def cleanup_task_extras(task_id: str):

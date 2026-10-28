@@ -5,7 +5,9 @@
 коротким текстом; подробности уходят в лог.
 """
 import logging
-from datetime import date, time, timedelta
+from dataclasses import replace
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from aiohttp import web
 
@@ -13,7 +15,7 @@ import config
 from api import material_routes
 from api.auth import InitDataError, verify_init_data
 from db import storage
-from services import ms_todo, task_ops
+from services import google_calendar, ms_todo, task_meta, task_ops
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +69,65 @@ async def error_middleware(request: web.Request, handler):
 
 
 def _note(task: dict) -> str:
-    text = ((task.get("body") or {}).get("content") or "").strip()
+    # Служебный блок снимается до обрезки, иначе его кусок попадёт в текст.
+    text = task_meta.split((task.get("body") or {}).get("content"))[0].strip()
     return text if len(text) <= NOTE_LIMIT else text[:NOTE_LIMIT] + "…"
+
+
+def _meta(task: dict) -> task_meta.Meta:
+    return task_meta.split((task.get("body") or {}).get("content"))[1]
+
+
+def _meta_fields(task: dict, today: date) -> dict:
+    """Номер на сегодня, исполнитель и рекомендации из служебного блока."""
+    meta = _meta(task)
+    return {"order": meta.order_on(today), "executor": meta.executor, "advice": meta.advice}
+
+
+def local_time(dt_str: str | None) -> str | None:
+    if not dt_str:
+        return None
+    return datetime.fromisoformat(dt_str).astimezone(ZoneInfo(config.USER_TIMEZONE)).strftime("%H:%M")
+
+
+async def task_times(tasks: list[dict], starts: dict[str, str | None] | None = None) -> dict[str, str | None]:
+    """Время задачи «ЧЧ:ММ»: из события календаря (`starts` — начала событий
+    по id), иначе из первого напоминания бота."""
+    starts = starts or {}
+    times = {}
+    for task in tasks:
+        event_id = await storage.get_calendar_link(task["id"])
+        time_ = local_time(starts.get(event_id)) if event_id else None
+        if time_ is None:
+            reminders = await storage.get_task_reminders(task["id"])
+            if reminders:
+                time_ = local_time(reminders[0][1] + "+00:00")
+        times[task["id"]] = time_
+    return times
+
+
+async def calendar_starts(tasks: list[dict], day: date) -> dict[str, str | None]:
+    """Начала событий дня по id — только если у задач есть привязанные
+    события: иначе в Google не ходим. Сбой календаря — без времени событий."""
+    if not await storage.get_task_ids_in_calendar([t["id"] for t in tasks]):
+        return {}
+    try:
+        events = await google_calendar.get_events_day(day)
+    except Exception:
+        logger.warning("mini-app: calendar unavailable for day order", exc_info=True)
+        return {}
+    return {e.get("id"): (e.get("start") or {}).get("dateTime") for e in events or []}
+
+
+def day_order(tasks: list[dict], times: dict[str, str | None], today: date) -> list[dict]:
+    """Порядок дня: с номером — по номеру, дальше со временем — по времени,
+    потом старые раньше новых. Один на «Сегодня», план дня и вечер."""
+    def key(task):
+        order = _meta(task).order_on(today)
+        time_ = times.get(task["id"])
+        return (order is None, order or 0, time_ is None, time_ or "", task.get("createdDateTime") or "")
+
+    return sorted(tasks, key=key)
 
 
 async def health(request: web.Request) -> web.Response:
@@ -84,6 +143,7 @@ async def get_inbox(request: web.Request) -> web.Response:
             "title": t.get("title") or "",
             "note": _note(t),
             "created": t.get("createdDateTime"),
+            **_meta_fields(t, config.local_today()),
         })
     return web.json_response({"count": len(items), "items": items})
 
@@ -93,6 +153,7 @@ async def _serialize(tasks: list[dict]) -> list[dict]:
     ids = [t["id"] for t in tasks]
     with_reminder = await storage.get_task_ids_with_any_reminder(ids)
     in_calendar = await storage.get_task_ids_in_calendar(ids)
+    today = config.local_today()
     out = []
     for t in tasks:
         out.append({
@@ -102,6 +163,7 @@ async def _serialize(tasks: list[dict]) -> list[dict]:
             "date": ms_todo.task_local_date(t),
             "reminder": t["id"] in with_reminder or bool(t.get("isReminderOn")),
             "calendar": t["id"] in in_calendar,
+            **_meta_fields(t, today),
         })
     return out
 
@@ -123,7 +185,7 @@ async def get_tasks(request: web.Request) -> web.Response:
         todays = [t for d, t in dated if d == today.isoformat()]
         return web.json_response({
             "overdue": await _serialize(_by_date(overdue)),
-            "today": await _serialize(_by_date(todays)),
+            "today": await _serialize(day_order(todays, await task_times(todays, await calendar_starts(todays, today)), today)),
         })
 
     days = []
@@ -219,6 +281,85 @@ async def move_tasks(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+def _bad_plan(message: str, error: str = "bad_plan") -> web.Response:
+    return web.json_response({"error": error, "message": message}, status=400)
+
+
+async def save_plan(request: web.Request) -> web.Response:
+    """Порядок дня и исполнители одним запросом.
+
+    `order` — ключи задач на сегодня по порядку: им номера 1…N, у остальных
+    сегодняшних номер на сегодня снимается. `meta` — {ключ: {executor,
+    advice}}, `null` снимает поле. По задаче — один GET и один PATCH, без
+    изменений — ни одного. Сбой на задаче не останавливает остальные.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not ({"order", "meta"} & body.keys()):
+        return _bad_plan("order: [ключи] и/или meta: {ключ: {executor, advice}}")
+    order = body.get("order")
+    meta = body.get("meta", {})
+    if "order" in body and (not isinstance(order, list) or not all(isinstance(k, str) for k in order) or len(set(order)) != len(order)):
+        return _bad_plan("order: список разных ключей")
+    if not isinstance(meta, dict):
+        return _bad_plan("meta: {ключ: {executor, advice}}")
+    for fields in meta.values():
+        if not isinstance(fields, dict) or not fields.keys() <= {"executor", "advice"}:
+            return _bad_plan("meta: только executor и advice")
+        if "executor" in fields and fields["executor"] not in (*task_meta.EXECUTORS, None):
+            return _bad_plan("executor: agent, self или null")
+        advice = fields.get("advice")
+        if advice is not None and (not isinstance(advice, str) or len(advice) > task_meta.ADVICE_LIMIT):
+            return _bad_plan(f"advice: строка до {task_meta.ADVICE_LIMIT} символов или null")
+
+    async def resolve(key: str) -> str:
+        task_id = await storage.resolve_task_id(key)
+        if not task_id:
+            raise web.HTTPNotFound(text='{"error": "not_found", "message": "Задача не найдена"}', content_type="application/json")
+        return task_id
+
+    today = config.local_today()
+    tasks = {t["id"]: t for t in await ms_todo.get_all_tasks()}
+    todays = {i for i, t in tasks.items() if ms_todo.task_local_date(t) == today.isoformat()}
+    positions = {await resolve(k): n for n, k in enumerate(order or [], start=1)}
+    if positions.keys() - todays:
+        return _bad_plan("Номер ставится только задачам на сегодня", "not_today")
+    fields_by_id = {await resolve(k): v for k, v in meta.items()}
+
+    touched = list(positions) + [i for i in fields_by_id if i not in positions]
+    if "order" in body:
+        # У невыбранных сегодняшних номер снимаем — тех, у кого он есть.
+        touched += [i for i in todays if i not in positions and i not in fields_by_id and _meta(tasks[i]).order_on(today) is not None]
+
+    def change_for(task_id: str):
+        def change(m: task_meta.Meta) -> task_meta.Meta:
+            if m.order is not None and m.order_date != today:
+                m = replace(m, order=None, order_date=None)  # вчерашний номер не нужен
+            if "order" in body:
+                if task_id in positions:
+                    m = replace(m, order=positions[task_id], order_date=today)
+                elif m.order_on(today) is not None:
+                    m = replace(m, order=None, order_date=None)
+            fields = fields_by_id.get(task_id, {})
+            if "executor" in fields:
+                m = replace(m, executor=fields["executor"])
+            if "advice" in fields:
+                m = replace(m, advice=(fields["advice"] or "").strip() or None)
+            return m
+        return change
+
+    saved, failed = 0, []
+    for task_id in touched:
+        try:
+            saved += await task_ops.update_meta(task_id, change_for(task_id))
+        except Exception:
+            logger.warning("mini-app plan: %s", task_id, exc_info=True)
+            failed.append((tasks.get(task_id) or {}).get("title") or "")
+    return web.json_response({"saved": saved, "total": len(touched), "failed": failed})
+
+
 async def _task_id_or_404(request: web.Request) -> str:
     task_id = await storage.resolve_task_id(request.match_info["key"])
     if not task_id:
@@ -308,6 +449,7 @@ def setup(app: web.Application) -> None:
     app.router.add_get("/api/tasks", get_tasks)
     app.router.add_get("/api/summary", get_summary)
     app.router.add_post("/api/tasks/move", move_tasks)
+    app.router.add_post("/api/tasks/plan", save_plan)
     app.router.add_post("/api/tasks/{key}/complete", complete_task)
     app.router.add_post("/api/tasks/{key}/schedule", schedule_task)
     app.router.add_get("/api/tasks/{key}/time", get_task_time)

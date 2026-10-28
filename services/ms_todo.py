@@ -6,6 +6,7 @@ import httpx
 from datetime import date, timedelta, datetime
 from zoneinfo import ZoneInfo
 import config
+from services import task_meta
 
 _access_token: str | None = None
 _token_expires_at: float = 0
@@ -174,7 +175,10 @@ async def create_task(title: str, due_date: str | None = None, due_time: str | N
             tz_str = "UTC"
         body["dueDateTime"] = {"dateTime": dt_str, "timeZone": tz_str}
     if description:
-        body["body"] = {"content": description, "contentType": "text"}
+        # Форварды и описания от LLM — чужой текст: маркеры служебного блока
+        # в нём обезвреживаются, чтобы он не выдал себя за порядок и
+        # рекомендации для агента.
+        body["body"] = {"content": task_meta.neutralize(description), "contentType": "text"}
     task = await _request("POST", _list_path(list_id), json=body)
 
     if subtasks:

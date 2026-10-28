@@ -203,6 +203,30 @@ button.quiet { color: var(--hint); font-size: 14px; }
 
 .plan-list li { padding: 5px 0; }
 .plan-list .time { display: inline-block; min-width: 50px; color: var(--hint); font-variant-numeric: tabular-nums; }
+
+/* --- порядок дня: номер тапом, исполнитель справа --- */
+.day-plan li { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.day-plan .pick { cursor: pointer;
+  flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 10px;
+  background: transparent; padding: 6px 0; text-align: left; border-radius: 0;
+}
+.day-plan .num {
+  flex: none; width: 24px; height: 24px; border-radius: 12px; margin-top: -1px;
+  border: 1.5px solid var(--hint); color: var(--accent-text); font-size: 13px; font-weight: 700;
+  display: grid; place-content: center; font-variant-numeric: tabular-nums;
+}
+.day-plan .pick.on .num { background: var(--accent); border-color: var(--accent); }
+.day-plan .pick-title { min-width: 0; overflow-wrap: anywhere; }
+.day-plan .who { flex: none; width: 40px; height: 34px; padding: 0; font-size: 18px; }
+.day-plan .who.none { color: var(--hint); }
+.day-plan .advice { flex-basis: 100%; padding: 0 0 6px 34px; font-size: 14px; color: var(--hint); }
+.day-plan .advice-text { display: block; white-space: pre-line; color: var(--text); }
+.day-plan .advice button { font-size: 14px; padding: 2px 0; }
+.sheet textarea {
+  width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--line); border-radius: 10px;
+  /* 16px: с меньшим iOS увеличивает страницу при фокусе и не возвращает. */
+  background: var(--fill); color: var(--text); font: inherit; font-size: 16px; resize: vertical;
+}
 .ritual section.card { margin-top: 6px; }
 .ritual section.card h2 { font-size: 13px; color: var(--hint); font-weight: 600; margin: 12px 0 4px; }
 

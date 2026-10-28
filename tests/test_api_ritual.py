@@ -91,8 +91,8 @@ def test_план_дня_встречи_задачи_и_норма(loop, client,
     status, data = _get(loop, client, "/api/ritual/plan")
     assert status == 200
     assert data["events"] == [{"time": None, "title": "Отпуск"}, {"time": "16:30", "title": "Стоматолог"}]
-    # Задача с событием — одна строка, со временем события.
-    assert [(t["title"], t.get("time")) for t in data["today"]] == [("На сегодня", None), ("Созвон", "15:00")]
+    # Задача с событием — одна строка, со временем события; со временем — выше.
+    assert [(t["title"], t.get("time")) for t in data["today"]] == [("Созвон", "15:00"), ("На сегодня", None)]
     assert data["norm"] == 5
 
 

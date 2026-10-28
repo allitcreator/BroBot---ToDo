@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Morning, Plan, RitualTask, Times, deleteTask, getMorning, getPlan, moveKeys, ritualDone, scheduleTask } from "../api";
+import { Morning, Plan, RitualTask, Times, deleteTask, getMorning, getPlan, moveKeys, ritualDone, savePlan, scheduleTask } from "../api";
+import { DayPlanner, PlanEdit, initialPlan, planChanges } from "../components/DayPlanner";
 import { ErrorView, errorText } from "../components/Status";
 import { TaskCard } from "../components/TaskCard";
-import { Title } from "../components/Title";
 import { hasTime, reportWarnings, useTimeAsk, warningText } from "../components/TimeSheet";
 import { badges, dayLabel, localToday, shortDate } from "../format";
 import { shortTitle } from "../hooks";
@@ -234,11 +234,15 @@ export function RitualMorning({ onClose }: { onClose: () => void }) {
 function PlanStep({ startedAt, onFinish }: { startedAt: number; onFinish: () => void }) {
   const [state, setState] = useState<{ kind: "loading" } | { kind: "error"; message: string; expired: boolean } | { kind: "ready"; plan: Plan }>({ kind: "loading" });
   const [elapsed] = useState(() => Math.round((Date.now() - startedAt) / 1000));
+  const [edit, setEdit] = useState<PlanEdit>({ order: [], meta: {} });
+  const [saving, setSaving] = useState(false);
 
   const load = async () => {
     setState({ kind: "loading" });
     try {
-      setState({ kind: "ready", plan: await getPlan() });
+      const plan = await getPlan();
+      setEdit(initialPlan(plan.today));
+      setState({ kind: "ready", plan });
     } catch (e) {
       setState({ kind: "error", ...errorText(e) });
     }
@@ -252,6 +256,24 @@ function PlanStep({ startedAt, onFinish }: { startedAt: number; onFinish: () => 
   if (state.kind === "error") return <ErrorView {...state} onRetry={() => void load()} />;
 
   const { events, today, norm } = state.plan;
+
+  // Порядок и исполнители — одним запросом; не сохранилось — остаёмся в плане.
+  const start = async () => {
+    const body = planChanges(today, edit);
+    if (body) {
+      setSaving(true);
+      try {
+        const r = await savePlan(body);
+        if (r.failed.length) alertUser(`Не сохранилось для: ${r.failed.join(", ")}`);
+      } catch (e) {
+        haptic("error");
+        alertUser((e as Error).message);
+        setSaving(false);
+        return;
+      }
+    }
+    onFinish();
+  };
   const n = today.length;
   const m = events?.length ?? 0;
   const parts = [`${n} ${plural(n, "задача", "задачи", "задач")}`];
@@ -282,16 +304,13 @@ function PlanStep({ startedAt, onFinish }: { startedAt: number; onFinish: () => 
         {n === 0 ? (
           <p className="hint">На сегодня задач нет.</p>
         ) : (
-          <ul className="plan-list">
-            {today.map((t) => (
-              <li key={t.key}>
-                {t.time && <span className="time">{t.time}</span>} <Title text={t.title} />
-              </li>
-            ))}
-          </ul>
+          <>
+            <p className="hint">Тапай задачи в том порядке, в каком будешь делать. Справа — кто делает.</p>
+            <DayPlanner tasks={today} edit={edit} onChange={setEdit} disabled={saving} />
+          </>
         )}
       </section>
-      <button className="wide primary" onClick={onFinish}>
+      <button className="wide primary" disabled={saving} onClick={() => void start()}>
         Начать день
       </button>
     </>

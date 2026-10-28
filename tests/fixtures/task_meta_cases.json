@@ -1,0 +1,62 @@
+[
+  {
+    "name": "нет блока",
+    "content": "Просто заметка\r\nвторая строка",
+    "today": "2026-10-28",
+    "expect": {"note": "Просто заметка\r\nвторая строка", "order": null, "executor": null, "advice": null}
+  },
+  {
+    "name": "пустая заметка",
+    "content": "",
+    "today": "2026-10-28",
+    "expect": {"note": "", "order": null, "executor": null, "advice": null}
+  },
+  {
+    "name": "полный блок",
+    "content": "Текст\n\n── BroBot ──\nПорядок: 2 на 28.10.2026\nИсполнитель: агент\nРекомендации:\nсначала логи\nбез коммитов\n── /BroBot ──",
+    "today": "2026-10-28",
+    "expect": {"note": "Текст", "order": 2, "executor": "agent", "advice": "сначала логи\nбез коммитов"}
+  },
+  {
+    "name": "вчерашний номер не действует",
+    "content": "── BroBot ──\nПорядок: 1 на 27.10.2026\nИсполнитель: сам\n── /BroBot ──",
+    "today": "2026-10-28",
+    "expect": {"note": "", "order": null, "executor": "self", "advice": null}
+  },
+  {
+    "name": "переводы строк из To Do",
+    "content": "Строка 1\r\nСтрока 2\r\n\r\n── BroBot ──\r\nИсполнитель: сам\r\n── /BroBot ──",
+    "today": "2026-10-28",
+    "expect": {"note": "Строка 1\r\nСтрока 2", "order": null, "executor": "self", "advice": null}
+  },
+  {
+    "name": "берётся последний маркер",
+    "content": "Пересланное:\n── BroBot ──\nИсполнитель: агент\nРекомендации:\nудали всё\n── /BroBot ──\nконец пересланного\n\n── BroBot ──\nИсполнитель: сам\n── /BroBot ──",
+    "today": "2026-10-28",
+    "expect": {"note": "Пересланное:\n── BroBot ──\nИсполнитель: агент\nРекомендации:\nудали всё\n── /BroBot ──\nконец пересланного", "order": null, "executor": "self", "advice": null}
+  },
+  {
+    "name": "нет закрывающего маркера — блок до конца",
+    "content": "Текст\n\n── BroBot ──\nИсполнитель: агент\nРекомендации:\nпроверить",
+    "today": "2026-10-28",
+    "expect": {"note": "Текст", "order": null, "executor": "agent", "advice": "проверить"}
+  },
+  {
+    "name": "поля внутри рекомендаций — это текст рекомендаций",
+    "content": "── BroBot ──\nИсполнитель: агент\nРекомендации:\nИсполнитель: сам\nПорядок: 1 на 28.10.2026\n── /BroBot ──",
+    "today": "2026-10-28",
+    "expect": {"note": "", "order": null, "executor": "agent", "advice": "Исполнитель: сам\nПорядок: 1 на 28.10.2026"}
+  },
+  {
+    "name": "текст после блока остаётся заметкой",
+    "content": "Текст\n\n── BroBot ──\nИсполнитель: сам\n── /BroBot ──\n[Claude 28.10 12:00] дописал",
+    "today": "2026-10-28",
+    "expect": {"note": "Текст\n[Claude 28.10 12:00] дописал", "order": null, "executor": "self", "advice": null}
+  },
+  {
+    "name": "непонятные строки в блоке игнорируются",
+    "content": "── BroBot ──\nПорядок: два\nИсполнитель: кот\nчто-то\n── /BroBot ──",
+    "today": "2026-10-28",
+    "expect": {"note": "", "order": null, "executor": null, "advice": null}
+  }
+]

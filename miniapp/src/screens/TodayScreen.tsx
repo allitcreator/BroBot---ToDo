@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Task, Times, completeTask, deleteTask, getToday, moveTasks, scheduleTask } from "../api";
+import { Task, Times, completeTask, deleteTask, getToday, moveTasks, savePlan, scheduleTask } from "../api";
+import { DayPlanner, PlanEdit, executorLabel, initialPlan, planChanges } from "../components/DayPlanner";
 import { TaskCard } from "../components/TaskCard";
 import { hasTime, reportWarnings, useTimeAsk, warningText } from "../components/TimeSheet";
 import { ErrorView, errorText } from "../components/Status";
@@ -21,6 +22,8 @@ type Props = {
 export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Props) {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [moving, setMoving] = useState(false);
+  // Режим «Порядок»: номера и исполнители задач на сегодня.
+  const [editing, setEditing] = useState<PlanEdit | null>(null);
   const { run, isBusy } = useCardActions(onChanged);
   const { ask, sheet } = useTimeAsk();
 
@@ -106,6 +109,28 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
     }
   };
 
+  const savePlanEdit = async (edit: PlanEdit) => {
+    const body = planChanges(data.today, edit);
+    if (!body) {
+      setEditing(null);
+      return;
+    }
+    setMoving(true);
+    try {
+      const r = await savePlan(body);
+      haptic(r.failed.length ? "error" : "success");
+      if (r.failed.length) alertUser(`Не сохранилось для: ${r.failed.join(", ")}`);
+      setEditing(null);
+      onChanged?.();
+      await load(true);
+    } catch (e) {
+      haptic("error");
+      alertUser((e as Error).message);
+    } finally {
+      setMoving(false);
+    }
+  };
+
   const today = localToday();
   const total = data.overdue.length + data.today.length;
   const card = (task: Task, overdue: boolean) => (
@@ -113,7 +138,12 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
       key={task.key}
       title={task.title}
       note={task.note}
-      meta={[overdue && task.date ? dayLabel(task.date, today) : "", badges(task)].filter(Boolean).join(" · ")}
+      meta={[
+        task.order ? `№ ${task.order}` : "",
+        executorLabel(task.executor),
+        overdue && task.date ? dayLabel(task.date, today) : "",
+        badges(task),
+      ].filter(Boolean).join(" · ")}
       disabled={isBusy(task.key)}
       onDone={() => void act(task, () => completeTask(task.key))}
       actions={[
@@ -132,7 +162,8 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
         <h1>
           <span className="star">★</span>Сегодня
         </h1>
-        <button className="ghost" onClick={() => void load()} aria-label="Обновить">↻</button>
+        {/* В режиме «Порядок» список не перезагружаем: правки держатся на нём. */}
+        <button className="ghost" disabled={!!editing} onClick={() => void load()} aria-label="Обновить">↻</button>
       </header>
       <p className="sub">
         {longDate(today)}
@@ -156,7 +187,7 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
         <section>
           <div className="group danger">
             <h2>Просрочено · {data.overdue.length}</h2>
-            <button className="ghost-text" disabled={moving} onClick={() => void moveAll("overdue", "today", data.overdue)}>
+            <button className="ghost-text" disabled={moving || !!editing} onClick={() => void moveAll("overdue", "today", data.overdue)}>
               Все на сегодня
             </button>
           </div>
@@ -168,9 +199,26 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
         {data.today.length > 0 && (
           <div className="group">
             <h2>{data.overdue.length > 0 ? "На сегодня" : "Задачи"} · {data.today.length}</h2>
+            {!editing && (
+              <button className="ghost-text" disabled={moving} onClick={() => setEditing(initialPlan(data.today))}>
+                Порядок
+              </button>
+            )}
           </div>
         )}
-        {data.today.length === 0 ? (
+        {editing && data.today.length > 0 ? (
+          <>
+            <DayPlanner tasks={data.today} edit={editing} onChange={setEditing} disabled={moving} />
+            <div className="actions">
+              <button className="main" disabled={moving} onClick={() => void savePlanEdit(editing)}>
+                Сохранить
+              </button>
+              <button disabled={moving} onClick={() => setEditing(null)}>
+                Отмена
+              </button>
+            </div>
+          </>
+        ) : data.today.length === 0 ? (
           <div className="empty">
             <div className="big">★</div>
             На сегодня ничего 🎉
