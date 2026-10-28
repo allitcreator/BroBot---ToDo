@@ -206,6 +206,69 @@ describe("Экран «Сегодня»: номер, исполнитель и �
   });
 });
 
+describe("Экран «Сегодня»: исполнитель и рекомендации в раскрытой строке", () => {
+  const today = [
+    t("c", "Купить корм", { executor: "agent", advice: "сначала проверить логи" }),
+    t("b", "Позвонить в сервис"),
+  ];
+
+  beforeEach(() => vi.mocked(api.getToday).mockResolvedValue({ overdue: [], today }));
+
+  const expand = async (title: string) => {
+    await userEvent.click(await screen.findByText(title));
+    return screen.getByText(title).closest("li")!;
+  };
+
+  it("рекомендации видны только в раскрытой строке, текущий исполнитель отмечен", async () => {
+    render(<App />);
+    await screen.findByText("Купить корм");
+    expect(screen.queryByText(/сначала проверить логи/)).not.toBeInTheDocument();
+    const row = await expand("Купить корм");
+    expect(within(row).getByText("Рекомендации: сначала проверить логи")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "🤖 Агенту" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(row).getByRole("button", { name: "👤 Сам" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("«👤 Сам» меняет исполнителя и снимает рекомендации, «🤖 Агенту» ставит агента", async () => {
+    render(<App />);
+    let row = await expand("Купить корм");
+    await userEvent.click(within(row).getByRole("button", { name: "👤 Сам" }));
+    expect(api.savePlan).toHaveBeenCalledWith({ meta: { c: { executor: "self", advice: null } } });
+    await waitFor(() => expect(api.getToday).toHaveBeenCalledTimes(2));
+
+    vi.mocked(api.savePlan).mockClear();
+    row = await expand("Позвонить в сервис");
+    await userEvent.click(within(row).getByRole("button", { name: "🤖 Агенту" }));
+    expect(api.savePlan).toHaveBeenCalledWith({ meta: { b: { executor: "agent", advice: null } } });
+  });
+
+  it("тап по выбранному исполнителю снимает отметку", async () => {
+    render(<App />);
+    const row = await expand("Купить корм");
+    await userEvent.click(within(row).getByRole("button", { name: "🤖 Агенту" }));
+    expect(api.savePlan).toHaveBeenCalledWith({ meta: { c: { executor: null, advice: null } } });
+  });
+
+  it("«✎ Рекомендации» у агента: лист с текстом, сохранение одним запросом", async () => {
+    render(<App />);
+    const row = await expand("Купить корм");
+    await userEvent.click(within(row).getByRole("button", { name: "✎ Рекомендации" }));
+    const sheet = screen.getByRole("dialog", { name: /Рекомендации/ });
+    const box = within(sheet).getByRole("textbox");
+    expect(box).toHaveValue("сначала проверить логи");
+    await userEvent.clear(box);
+    await userEvent.type(box, "без коммитов");
+    await userEvent.click(within(sheet).getByRole("button", { name: "Сохранить" }));
+    expect(api.savePlan).toHaveBeenCalledWith({ meta: { c: { executor: "agent", advice: "без коммитов" } } });
+  });
+
+  it("у задачи без агента кнопки рекомендаций нет", async () => {
+    render(<App />);
+    const row = await expand("Позвонить в сервис");
+    expect(within(row).queryByRole("button", { name: "✎ Рекомендации" })).not.toBeInTheDocument();
+  });
+});
+
 describe("planChanges", () => {
   it("не падает на задаче без правки и не шлёт ключи, которых нет в списке", async () => {
     const { initialPlan, planChanges } = await import("./components/DayPlanner");

@@ -222,6 +222,7 @@ button.quiet { color: var(--hint); font-size: 14px; }
 .day-plan .advice { flex-basis: 100%; padding: 0 0 6px 34px; font-size: 14px; color: var(--hint); }
 .day-plan .advice-text { display: block; white-space: pre-line; color: var(--text); }
 .day-plan .advice button { font-size: 14px; padding: 2px 0; }
+.advice-line { margin-top: 4px; font-size: 14px; white-space: pre-line; overflow-wrap: anywhere; }
 .sheet textarea {
   width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--line); border-radius: 10px;
   /* 16px: с меньшим iOS увеличивает страницу при фокусе и не возвращает. */

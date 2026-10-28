@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Task, Times, completeTask, deleteTask, getToday, moveTasks, savePlan, scheduleTask } from "../api";
+import { Executor, Task, Times, completeTask, deleteTask, getToday, moveTasks, savePlan, scheduleTask } from "../api";
+import { AdviceSheet } from "../components/AdviceSheet";
 import { DayPlanner, PlanEdit, executorLabel, initialPlan, planChanges } from "../components/DayPlanner";
 import { TaskCard } from "../components/TaskCard";
 import { hasTime, reportWarnings, useTimeAsk, warningText } from "../components/TimeSheet";
@@ -24,6 +25,7 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
   const [moving, setMoving] = useState(false);
   // Режим «Порядок»: номера и исполнители задач на сегодня.
   const [editing, setEditing] = useState<PlanEdit | null>(null);
+  const [advising, setAdvising] = useState<Task | null>(null);
   const { run, isBusy } = useCardActions(onChanged);
   const { ask, sheet } = useTimeAsk();
 
@@ -131,6 +133,27 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
     }
   };
 
+  // Исполнитель и рекомендации из раскрытой строки. Рекомендации — только у
+  // агента: другой исполнитель их снимает.
+  const setMeta = async (task: Task, executor: Executor, advice: string | null) => {
+    if (moving) return;
+    setMoving(true);
+    try {
+      const r = await savePlan({ meta: { [task.key]: { executor, advice: executor === "agent" ? advice : null } } });
+      if (r.failed.length) throw new Error(`Не сохранилось для: ${r.failed.join(", ")}`);
+      haptic("success");
+      onChanged?.();
+      await load(true);
+    } catch (e) {
+      haptic("error");
+      alertUser((e as Error).message);
+    } finally {
+      setMoving(false);
+    }
+  };
+  const pickExecutor = (task: Task, executor: Exclude<Executor, null>) =>
+    void setMeta(task, task.executor === executor ? null : executor, task.advice ?? null);
+
   const today = localToday();
   const total = data.overdue.length + data.today.length;
   const card = (task: Task, overdue: boolean) => (
@@ -144,13 +167,17 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
         overdue && task.date ? dayLabel(task.date, today) : "",
         badges(task),
       ].filter(Boolean).join(" · ")}
-      disabled={isBusy(task.key)}
+      advice={task.executor === "agent" ? task.advice : null}
+      disabled={isBusy(task.key) || moving}
       onDone={() => void act(task, () => completeTask(task.key))}
       actions={[
         overdue
           ? { label: "Сегодня", main: true, onClick: () => void schedule(task, "today", "Сегодня") }
           : { label: "Завтра", main: true, onClick: () => void schedule(task, "tomorrow", "Завтра") },
         { label: "Удалить", danger: true, onClick: () => void remove(task) },
+        { label: "👤 Сам", pressed: task.executor === "self", onClick: () => pickExecutor(task, "self") },
+        { label: "🤖 Агенту", pressed: task.executor === "agent", onClick: () => pickExecutor(task, "agent") },
+        ...(task.executor === "agent" ? [{ label: "✎ Рекомендации", onClick: () => setAdvising(task) }] : []),
       ]}
       onPickDate={(date) => void schedule(task, date, dayLabel(date, today))}
     />
@@ -233,6 +260,18 @@ export function TodayScreen({ onChanged, inbox = 0, onOpenInbox, onRitual }: Pro
         )}
       </section>
       {sheet}
+      {advising && (
+        <AdviceSheet
+          title={advising.title}
+          initial={advising.advice ?? ""}
+          onCancel={() => setAdvising(null)}
+          onSave={(advice) => {
+            const task = advising;
+            setAdvising(null);
+            void setMeta(task, "agent", advice);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -2,12 +2,15 @@ import { KeyboardEvent, useState } from "react";
 import { Title } from "./Title";
 
 // quiet — второстепенное действие («Пропустить»): тихая ссылка под сеткой.
-export type CardAction = { label: string; onClick: () => void; danger?: boolean; main?: boolean; quiet?: boolean };
+// pressed — переключатель (исполнитель): состояние отдаётся через aria-pressed.
+export type CardAction = { label: string; onClick: () => void; danger?: boolean; main?: boolean; quiet?: boolean; pressed?: boolean };
 
 type Props = {
   title: string;
   note?: string;
   meta?: string;
+  // Рекомендации агенту: только в раскрытой строке.
+  advice?: string | null;
   disabled: boolean;
   actions: CardAction[];
   // Перенос на выбранную дату. Переносим только по «Перенести»: iOS при
@@ -22,7 +25,7 @@ type Props = {
 };
 
 // Строка задачи в стиле Things 3: чекбокс, название, под ним заметка и метки.
-export function TaskCard({ title, note, meta, disabled, actions, onPickDate, onDone, open = false, big = false }: Props) {
+export function TaskCard({ title, note, meta, advice, disabled, actions, onPickDate, onDone, open = false, big = false }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [picking, setPicking] = useState<string | null>(null);
   const shown = open || big || expanded;
@@ -31,7 +34,13 @@ export function TaskCard({ title, note, meta, disabled, actions, onPickDate, onD
   const buttons = (
     <div className={big ? "opts" : "actions"}>
       {actions.filter((a) => !a.quiet).map((a) => (
-        <button key={a.label} className={[a.danger && "danger", a.main && "main"].filter(Boolean).join(" ") || undefined} disabled={disabled} onClick={a.onClick}>
+        <button
+          key={a.label}
+          className={[a.danger && "danger", (a.main || a.pressed) && "main"].filter(Boolean).join(" ") || undefined}
+          aria-pressed={a.pressed}
+          disabled={disabled}
+          onClick={a.onClick}
+        >
           {a.label}
         </button>
       ))}
@@ -117,6 +126,7 @@ export function TaskCard({ title, note, meta, disabled, actions, onPickDate, onD
             </div>
           )}
           {meta && <div className="meta">{meta}</div>}
+          {shown && advice && <div className="advice-line">Рекомендации: {advice}</div>}
         </div>
         {shown && buttons}
         {picker}

@@ -1,5 +1,6 @@
 import { KeyboardEvent, useState } from "react";
 import { Executor, PlanBody, Task } from "../api";
+import { AdviceSheet } from "./AdviceSheet";
 import { Title } from "./Title";
 
 // Порядок дня и исполнители: тап по задаче — следующий номер, повторный —
@@ -70,9 +71,8 @@ export function DayPlanner({ tasks, edit, onChange, disabled = false }: Props) {
     onChange({ ...edit, meta: { ...edit.meta, [key]: { ...row, executor: NEXT[row.executor ?? "none"] } } });
   };
 
-  const saveAdvice = () => {
+  const saveAdvice = (advice: string | null) => {
     if (!advising) return;
-    const advice = advising.text.trim() || null;
     const task = tasks.find((t) => t.key === advising.key)!;
     onChange({ ...edit, meta: { ...edit.meta, [advising.key]: { ...rowOf(edit, task), advice } } });
     setAdvising(null);
@@ -140,27 +140,7 @@ export function DayPlanner({ tasks, edit, onChange, disabled = false }: Props) {
         </button>
       )}
       {advising && (
-        <div className="sheet-backdrop">
-          <div className="sheet" role="dialog" aria-label={`Рекомендации: ${advising.title}`}>
-            <h2>Рекомендации агенту</h2>
-            <p className="hint">
-              <Title text={advising.title} />
-            </p>
-            <textarea
-              aria-label="Текст рекомендаций"
-              rows={5}
-              maxLength={2000}
-              value={advising.text}
-              onChange={(e) => setAdvising({ ...advising, text: e.target.value })}
-            />
-            <div className="actions">
-              <button onClick={saveAdvice}>Сохранить</button>
-              <button className="ghost-text" onClick={() => setAdvising(null)}>
-                Отмена
-              </button>
-            </div>
-          </div>
-        </div>
+        <AdviceSheet title={advising.title} initial={advising.text} onSave={saveAdvice} onCancel={() => setAdvising(null)} />
       )}
     </>
   );
