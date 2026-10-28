@@ -1,7 +1,7 @@
 # HANDOFF
 
 Статус: открыт
-Обновлено: 2026-10-28 12:10 MSK
+Обновлено: 2026-10-28 12:45 MSK
 Клиент: Claude
 
 ## Цель
@@ -63,15 +63,8 @@
 
 ## Изменённые файлы
 
-Не закоммичено (порядок дня): новые `services/task_meta.py`,
-`deploy/strip_task_meta.py`, `tests/test_task_meta.py`,
-`tests/test_api_plan.py`, `tests/fixtures/task_meta_cases.json`,
-`miniapp/src/components/DayPlanner.tsx`, `miniapp/src/DayPlan.test.tsx`,
-`TODAY-ORDER-CONCEPT.md`; изменены `api/routes.py`, `api/ritual_routes.py`,
-`api/more_routes.py`, `services/ms_todo.py`, `services/projects.py`,
-`services/task_ops.py`, `tests/test_api_ritual.py`, `miniapp/src/api.ts`,
-`miniapp/src/screens/{RitualMorning,TodayScreen}.tsx`,
-`miniapp/src/styles.css`. Плюс `HANDOFF.md`, `HANDOFF-archive.md`.
+Всё в main и в проде (`ea2196e` + смоук). Не в git — `.agent-panel.md`
+(не наш).
 
 ## Проверки
 
@@ -95,13 +88,13 @@
 
 ## Следующий точный шаг
 
-0. **В работе (28.10): порядок дня и исполнитель задачи** — план
-   `TODAY-ORDER-CONCEPT.md` (решения Александра и ревью skeptic учтены).
-   Этап 1 (бэкенд) и этап 2 (мини-апп) написаны, не закоммичены, не в проде:
-   pytest 351, vitest 131, `tsc`, сборка. Ревью бэкенда (3) и фронта (2+2)
-   — находки исправлены с тестами. Дальше: коммит → выкладка по
-   «выкатывай» → смоук на тестовой задаче. Этап 3
-   (ассистент, `../todo_and_run`) — после решения Александра, кто делает.
+0. **Порядок дня и исполнитель задачи — в проде 28.10 (`ea2196e`)**, план
+   `TODAY-ORDER-CONCEPT.md`. Смоук `deploy/smoke_task_meta.py` 9/9 (блок
+   пишется и читается, `\r\n` над блоком побайтно, подделка в форварде
+   обезврежена, повтор без записи, снятие возвращает заметку);
+   `strip_task_meta.py` без `--apply`: 1561 задача, блоков 0. Осталось:
+   этап 3 (ассистент, `../todo_and_run`) — ждёт решения Александра, кто
+   делает; первый живой «План дня» с номерами — завтра утром.
 1. С разрешения на чтение прода: `ritual_runs` за 27–28.10 — ушла ли хоть
    одна сводка `sent`, и `grep 'ritual=' /var/log/nginx/access.log`.
 2. `logger.info` на пропуск сводки в `services/rituals.py`.
@@ -109,6 +102,8 @@
 
 ## Rollback
 
+- Порядок дня: `git revert ea2196e`; блоки из заметок —
+  `deploy/strip_task_meta.py --apply` в контейнере (до revert).
 - Этап 4: `git revert 11b7909`; новые таблицы и колонки старый код не трогает.
 - UI Things 3: `git revert 4650a40 f8558c4` (только фронт).
 - Ритуалы: `git revert` `d920075` и `9465ca6..a56a836`.
